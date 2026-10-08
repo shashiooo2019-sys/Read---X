@@ -1,0 +1,6 @@
+{
+  "name": "Read & Sign Compliance Management System",
+  "description": "Enterprise M365-integrated compliance platform for acknowledging and tracking Read & Sign topics across ALL, ALS, and Lead personnel.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
