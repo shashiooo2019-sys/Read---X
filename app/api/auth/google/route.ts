@@ -6,13 +6,28 @@ const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '9748229036
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { credential } = body;
+    const { credential, uNumber } = body;
 
     if (!credential) {
       return NextResponse.json(
         { success: false, message: 'Google ID token (credential) is required.' },
         { status: 400 }
       );
+    }
+
+    let targetUserByUNumber = null;
+    if (uNumber && typeof uNumber === 'string' && uNumber.trim().length > 0) {
+      targetUserByUNumber = serverAuthStore.findUserByUNumber(uNumber);
+      if (!targetUserByUNumber) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'INVALID_U_NUMBER',
+            message: `Staff U Number "${uNumber.trim()}" was not found in the staff roster. Please verify your correct U number (e.g. U086936).`,
+          },
+          { status: 400 }
+        );
+      }
     }
 
     let googleEmail = '';
@@ -45,7 +60,7 @@ export async function POST(req: NextRequest) {
       if (!googleEmail) {
         try {
           const tokenInfoRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`, {
-            signal: AbortSignal.timeout(5000), // 5 second timeout
+            signal: AbortSignal.timeout(6000), // 6 second timeout
           });
           if (tokenInfoRes.ok) {
             const tokenData = await tokenInfoRes.json();
@@ -66,7 +81,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          message: 'Unable to verify Google token. Please check your network connection or try Quick Demo Access.',
+          error: 'AUTH_SERVER_ERROR',
+          message: 'Authentication server error or network timeout communicating with Google. Please check your network connection or try direct work email sign-in.',
         },
         { status: 401 }
       );
@@ -75,7 +91,7 @@ export async function POST(req: NextRequest) {
     const domain = googleEmail.split('@')[1] || '';
     const isWorkDomain = domain === 'dlh.de' || domain === 'swiss.com';
     const isApprovedPrivate = serverAuthStore.isPrivateEmailApproved(googleEmail);
-    const existingUser = serverAuthStore.findUserByEmail(googleEmail);
+    const existingUser = targetUserByUNumber || serverAuthStore.findUserByEmail(googleEmail);
 
     // Authorization check: Must be work email (@dlh.de, @swiss.com) or approved private user or already registered user
     if (!isWorkDomain && !isApprovedPrivate && !existingUser) {
@@ -134,6 +150,8 @@ export async function POST(req: NextRequest) {
       });
     } else {
       serverAuthStore.updateUser(user.id, {
+        email: googleEmail,
+        loginEmail: googleEmail,
         name: user.name || googleName,
       });
     }

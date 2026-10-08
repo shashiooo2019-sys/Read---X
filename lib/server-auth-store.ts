@@ -203,6 +203,13 @@ export const serverAuthStore = {
     );
   },
 
+  findUserByUNumber(uNumber: string): User | undefined {
+    const clean = uNumber.trim().toUpperCase();
+    return store.users.find(
+      u => u.uNumber?.toUpperCase() === clean
+    );
+  },
+
   findUserById(userId: string): User | undefined {
     return store.users.find(u => u.id === userId);
   },

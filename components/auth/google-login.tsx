@@ -52,6 +52,7 @@ export function GoogleLogin({ onLoginSuccess, deviceLockedEmail }: GoogleLoginPr
   const [errorMessage, setErrorMessage] = useState('');
   const [isDeviceLocked, setIsDeviceLocked] = useState(!!deviceLockedEmail);
   const [lockedAccountEmail, setLockedAccountEmail] = useState(deviceLockedEmail || '');
+  const [uNumberInput, setUNumberInput] = useState('');
   const [customEmail, setCustomEmail] = useState('');
   const [adminUsername, setAdminUsername] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
@@ -77,13 +78,17 @@ export function GoogleLogin({ onLoginSuccess, deviceLockedEmail }: GoogleLoginPr
   const handleCredentialResponse = useCallback(
     async (response: { credential: string }) => {
       setErrorMessage('');
+      if (!uNumberInput.trim()) {
+        setErrorMessage('Step 1 Required: Please enter your Staff U Number (e.g. U086936) before choosing your Google account.');
+        return;
+      }
       setIsLoading(true);
 
       try {
         const res = await fetch('/api/auth/google', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ credential: response.credential }),
+          body: JSON.stringify({ credential: response.credential, uNumber: uNumberInput.trim() }),
         });
 
         const contentType = res.headers.get('content-type');
@@ -93,7 +98,7 @@ export function GoogleLogin({ onLoginSuccess, deviceLockedEmail }: GoogleLoginPr
         } else {
           const text = await res.text();
           console.error('Non-JSON response from /api/auth/google:', text);
-          data = { success: false, message: 'Authentication server error or gateway timeout. Please try again.' };
+          data = { success: false, message: 'Authentication server error or gateway timeout. Please check network connection.' };
         }
 
         if (res.ok && data.success && data.user) {
@@ -103,16 +108,16 @@ export function GoogleLogin({ onLoginSuccess, deviceLockedEmail }: GoogleLoginPr
             setIsDeviceLocked(true);
             setLockedAccountEmail(data.lockedEmail);
           }
-          setErrorMessage(data.message || 'Google authentication failed. Please try again.');
+          setErrorMessage(data.message || 'Google authentication failed. Please verify your U Number and Google account.');
         }
       } catch (err: any) {
         console.error('Google Auth Fetch Error:', err);
-        setErrorMessage('Network connection error while communicating with authentication server. Please check your network connection.');
+        setErrorMessage('Network connection error while communicating with authentication server. Please check your network connection or try direct work email sign-in.');
       } finally {
         setIsLoading(false);
       }
     },
-    [onLoginSuccess]
+    [onLoginSuccess, uNumberInput]
   );
 
   const initializeGoogleButton = useCallback(() => {
@@ -168,13 +173,17 @@ export function GoogleLogin({ onLoginSuccess, deviceLockedEmail }: GoogleLoginPr
   }, [initializeGoogleButton]);
 
   const handleQuickDemoLogin = async (testEmail: string) => {
+    if (!uNumberInput.trim()) {
+      setErrorMessage('Step 1 Required: Please enter your Staff U Number (e.g. U086936) before signing in.');
+      return;
+    }
     setIsLoading(true);
     setErrorMessage('');
     try {
       const res = await fetch('/api/auth/google', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credential: `mock_google_id_token_for_${testEmail}` }),
+        body: JSON.stringify({ credential: `mock_google_id_token_for_${testEmail}`, uNumber: uNumberInput.trim() }),
       });
       const data = await res.json();
       if (res.ok && data.success && data.user) {
@@ -192,6 +201,10 @@ export function GoogleLogin({ onLoginSuccess, deviceLockedEmail }: GoogleLoginPr
 
   const handleCustomEmailSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!uNumberInput.trim()) {
+      setErrorMessage('Step 1 Required: Please enter your Staff U Number (e.g. U086936) first.');
+      return;
+    }
     if (!customEmail || !customEmail.includes('@')) {
       setErrorMessage('Please enter a valid work or email address (e.g., name@dlh.de).');
       return;
@@ -273,30 +286,49 @@ export function GoogleLogin({ onLoginSuccess, deviceLockedEmail }: GoogleLoginPr
               <p className="text-xs text-slate-300 font-medium">Authenticating secure Google session...</p>
             </div>
           ) : (
-            <div className="space-y-6">
-              <div className="text-center space-y-2">
-                <h2 className="text-sm font-semibold text-slate-200">Sign in with your work or approved Google account</h2>
+            <div className="space-y-5">
+              <div className="text-center space-y-1.5">
+                <h2 className="text-sm font-semibold text-slate-200">Secure Staff Authentication</h2>
                 <p className="text-xs text-slate-400">
-                  Authentication is restricted to <span className="text-blue-400 font-medium">@dlh.de</span>,{' '}
-                  <span className="text-blue-400 font-medium">@swiss.com</span> work emails and pre-approved private email addresses.
+                  Step 1: Enter your Staff U Number, then Step 2: Choose your Google account.
                 </p>
               </div>
 
-              {/* Official Google Sign-In Button Container */}
-              <div className="flex justify-center py-1">
-                <div id="google-signin-btn-container" className="w-full flex justify-center min-h-[44px]">
-                  <button
-                    disabled
-                    className="w-full py-3 px-4 bg-slate-700 text-slate-400 text-sm font-medium rounded-xl flex items-center justify-center space-x-2 cursor-wait"
-                  >
-                    <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
-                    <span>Loading Google Sign-In...</span>
-                  </button>
+              {/* Step 1: Staff U Number Input */}
+              <div className="space-y-1.5 bg-slate-900/60 p-3.5 rounded-xl border border-slate-700/80">
+                <label className="block text-[11px] font-bold text-blue-400 uppercase tracking-wider flex items-center justify-between">
+                  <span>Step 1: Enter Your Staff U Number</span>
+                  <span className="text-[10px] text-slate-400 font-normal">e.g. U086936</span>
+                </label>
+                <input
+                  type="text"
+                  value={uNumberInput}
+                  onChange={(e) => setUNumberInput(e.target.value)}
+                  placeholder="Enter U Number (e.g. U086936)"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors uppercase tracking-wider font-semibold"
+                />
+              </div>
+
+              {/* Step 2: Official Google Sign-In Button Container */}
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider">
+                  Step 2: Choose Google Account
+                </label>
+                <div className="flex justify-center py-1">
+                  <div id="google-signin-btn-container" className="w-full flex justify-center min-h-[44px]">
+                    <button
+                      disabled
+                      className="w-full py-3 px-4 bg-slate-700 text-slate-400 text-sm font-medium rounded-xl flex items-center justify-center space-x-2 cursor-wait"
+                    >
+                      <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                      <span>Loading Google Sign-In...</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
               {/* Direct Work Email Sign-In Fallback (Bypasses popup blockers / iframe sandbox restrictions) */}
-              <div className="pt-2">
+              <div className="pt-1">
                 <form onSubmit={handleCustomEmailSubmit} className="space-y-2">
                   <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
                     Or Sign In with Work Email Address
