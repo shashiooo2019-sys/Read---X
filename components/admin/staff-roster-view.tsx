@@ -38,7 +38,6 @@ interface StaffRosterViewProps {
   topics: Topic[];
   confirmations: TopicConfirmation[];
   currentUser: User;
-  onToggleAdmin?: (userId: string) => void;
   onSwitchUser?: (user: User) => void;
   onAddStaff: (staff: User) => void;
   onUpdateStaff: (staff: User) => void;
@@ -51,7 +50,6 @@ export function StaffRosterView({
   topics,
   confirmations,
   currentUser,
-  onToggleAdmin,
   onAddStaff,
   onUpdateStaff,
   onDeleteStaff,

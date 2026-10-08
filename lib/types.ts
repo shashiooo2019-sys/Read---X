@@ -17,6 +17,7 @@ export interface User {
   loginEmail?: string; // Permanently registered login email
   workEmail?: string; // M365 work email (if private email is used as login)
   emailDomain?: string; // dlh.de, swiss.com, etc.
+  passwordHash?: string; // Password hash for sign-in after initial setup
   isAls: boolean;
   isLead: boolean;
   isAdmin: boolean;

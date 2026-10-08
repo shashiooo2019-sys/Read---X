@@ -255,6 +255,32 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // 6. CLEAR PASSWORD (Admin password deletion for re-setup)
+    if (action === 'clear_password') {
+      const { userId } = body;
+      const user = serverAuthStore.findUserById(userId);
+      if (!user) {
+        return NextResponse.json({ error: 'USER_NOT_FOUND' }, { status: 404 });
+      }
+
+      serverAuthStore.clearPassword(userId);
+      serverAuthStore.invalidateAllSessionsForUser(userId);
+
+      serverAuthStore.addAuditLog({
+        action: 'user_approved',
+        userId: user.id,
+        targetEmail: user.email,
+        performedBy: admin.email,
+        details: `Administrator ${admin.name} cleared password for ${user.email}, enabling first-time password setup again.`,
+        ipAddress: ip,
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: `Password cleared for ${user.email}. Staff member can now set up a new password upon next sign-in.`,
+      });
+    }
+
     return NextResponse.json({ error: 'UNKNOWN_ACTION', message: `Action ${action} is not supported.` }, { status: 400 });
   } catch (error) {
     console.error('Admin POST error:', error);

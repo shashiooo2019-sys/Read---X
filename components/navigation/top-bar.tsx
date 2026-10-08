@@ -11,7 +11,6 @@ interface TopBarProps {
   onLogout: () => void;
   onSwitchUser?: (user: User) => void;
   allUsers?: User[];
-  onToggleCurrentUserAdmin: () => void;
 }
 
 export function TopBar({
@@ -19,7 +18,6 @@ export function TopBar({
   activeTab,
   onTabChange,
   onLogout,
-  onToggleCurrentUserAdmin,
 }: TopBarProps) {
   const [showUserDropdown, setShowUserDropdown] = useState(false);
 
@@ -117,22 +115,8 @@ export function TopBar({
             )}
           </nav>
 
-          {/* Zone 3: 1-2 Primary Actions & User Identity */}
+          {/* Zone 3: Primary Actions & User Identity */}
           <div className="flex items-center gap-3">
-            {/* Quick Admin Toggle (for evaluator convenience) */}
-            <button
-              onClick={onToggleCurrentUserAdmin}
-              title={currentUser.isAdmin ? 'Revoke Admin for current view' : 'Grant Admin role to current user'}
-              className={`hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border rounded transition ${
-                currentUser.isAdmin
-                  ? 'border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100'
-                  : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'
-              }`}
-            >
-              <Shield className="w-3 h-3" />
-              <span>{currentUser.isAdmin ? 'Admin Mode (Active)' : 'Standard User'}</span>
-            </button>
-
             {/* Profile Dropdown */}
             <div className="relative">
               <button
@@ -191,17 +175,6 @@ export function TopBar({
                   </div>
 
                   <div className="pt-1 border-t border-slate-100 px-3 flex flex-col gap-1">
-                    <button
-                      onClick={() => {
-                        onToggleCurrentUserAdmin();
-                        setShowUserDropdown(false);
-                      }}
-                      className="w-full text-left px-2 py-1.5 text-xs text-purple-700 hover:bg-purple-50 rounded flex items-center gap-2"
-                    >
-                      <Shield className="w-3.5 h-3.5" />
-                      <span>{currentUser.isAdmin ? 'Switch to Standard Role' : 'Promote to Admin Role'}</span>
-                    </button>
-
                     <button
                       onClick={() => {
                         setShowUserDropdown(false);

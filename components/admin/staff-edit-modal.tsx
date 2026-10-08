@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { User } from '@/lib/types';
-import { X, UserPlus, Check, Shield, AlertCircle } from 'lucide-react';
+import { X, UserPlus, Check, Shield, AlertCircle, Key, RefreshCw } from 'lucide-react';
 
 interface StaffEditModalProps {
   initialStaff?: User | null; // If null, creating new staff
@@ -27,6 +27,32 @@ export function StaffEditModal({
   const [department, setDepartment] = useState(initialStaff?.department || 'Station Operations');
   const [title, setTitle] = useState(initialStaff?.title || '');
   const [error, setError] = useState('');
+  const [clearingPassword, setClearingPassword] = useState(false);
+
+  const handleClearPassword = async () => {
+    if (!initialStaff) return;
+    if (!window.confirm(`Are you sure you want to clear/reset the password for ${initialStaff.name} (${initialStaff.email})? They will be prompted to set up a new password upon next sign-in.`)) {
+      return;
+    }
+    setClearingPassword(true);
+    try {
+      const res = await fetch('/api/auth/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'clear_password', userId: initialStaff.id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        alert(data.message);
+      } else {
+        alert(data.message || 'Failed to clear password.');
+      }
+    } catch (err) {
+      alert('Network error while clearing password.');
+    } finally {
+      setClearingPassword(false);
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -220,6 +246,24 @@ export function StaffEditModal({
               />
             </div>
           </div>
+
+          {isEditing && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between">
+              <div>
+                <span className="font-semibold text-amber-900 block">Password Setup State</span>
+                <span className="text-[11px] text-amber-700">Clear password to require first-time setup again.</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleClearPassword}
+                disabled={clearingPassword}
+                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-semibold flex items-center gap-1 transition"
+              >
+                <Key className="w-3.5 h-3.5" />
+                <span>{clearingPassword ? 'Clearing...' : 'Clear/Reset Password'}</span>
+              </button>
+            </div>
+          )}
 
           {/* Footer actions */}
           <div className="pt-4 border-t border-slate-200 flex items-center justify-end gap-3">

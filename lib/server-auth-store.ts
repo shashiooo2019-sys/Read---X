@@ -475,4 +475,30 @@ export const serverAuthStore = {
   getSentEmails(): SentEmailRecord[] {
     return store.sentEmails;
   },
+
+  // Password Management
+  hashPassword(password: string): string {
+    return crypto.createHash('sha256').update(password).digest('hex');
+  },
+
+  setPassword(userId: string, passwordPlain: string): User | undefined {
+    const user = this.findUserById(userId);
+    if (!user) return undefined;
+    const passwordHash = this.hashPassword(passwordPlain);
+    return this.updateUser(userId, { passwordHash });
+  },
+
+  clearPassword(userId: string): User | undefined {
+    const user = this.findUserById(userId);
+    if (!user) return undefined;
+    const updated = this.updateUser(userId, { passwordHash: undefined });
+    return updated;
+  },
+
+  verifyPassword(userId: string, passwordPlain: string): boolean {
+    const user = this.findUserById(userId);
+    if (!user || !user.passwordHash) return false;
+    const inputHash = this.hashPassword(passwordPlain);
+    return user.passwordHash === inputHash;
+  },
 };

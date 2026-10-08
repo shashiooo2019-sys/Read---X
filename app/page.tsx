@@ -109,25 +109,7 @@ export default function Home() {
     setCurrentUserId(user.id);
   };
 
-  // Toggle current user admin privilege
-  const handleToggleCurrentUserAdmin = () => {
-    if (!currentUser) return;
-    const updatedUser = { ...currentUser, isAdmin: !currentUser.isAdmin };
-    const updatedUsers = users.map(u => (u.id === currentUser.id ? updatedUser : u));
-    setUsers(updatedUsers);
-    saveUsers(updatedUsers);
-    setCurrentUser(updatedUser);
-  };
 
-  // Toggle any user's admin privilege
-  const handleToggleAdmin = (userId: string) => {
-    const updatedUsers = users.map(u => (u.id === userId ? { ...u, isAdmin: !u.isAdmin } : u));
-    setUsers(updatedUsers);
-    saveUsers(updatedUsers);
-    if (currentUser && currentUser.id === userId) {
-      setCurrentUser(prev => (prev ? { ...prev, isAdmin: !prev.isAdmin } : null));
-    }
-  };
 
   // Create new compliance topic
   const handleCreateTopic = (newTopicData: Omit<Topic, 'id' | 'createdAt'>) => {
@@ -252,7 +234,6 @@ export default function Home() {
         activeTab={activeTab}
         onTabChange={tab => setActiveTab(tab)}
         onLogout={handleLogout}
-        onToggleCurrentUserAdmin={handleToggleCurrentUserAdmin}
       />
 
       {/* Main Content Area */}
@@ -285,7 +266,6 @@ export default function Home() {
             topics={topics}
             confirmations={confirmations}
             currentUser={currentUser}
-            onToggleAdmin={handleToggleAdmin}
             onSwitchUser={handleSwitchUser}
             onAddStaff={handleAddStaff}
             onUpdateStaff={handleUpdateStaff}
