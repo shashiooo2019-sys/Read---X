@@ -38,7 +38,7 @@ interface StaffRosterViewProps {
   topics: Topic[];
   confirmations: TopicConfirmation[];
   currentUser: User;
-  onToggleAdmin: (userId: string) => void;
+  onToggleAdmin?: (userId: string) => void;
   onSwitchUser?: (user: User) => void;
   onAddStaff: (staff: User) => void;
   onUpdateStaff: (staff: User) => void;
@@ -634,29 +634,9 @@ export function StaffRosterView({
                         )}
                       </td>
                       <td className="py-2.5 px-4 text-center">
-                        <button
-                          onClick={() => {
-                            onToggleAdmin(user.id);
-                            showToast(
-                              user.isAdmin
-                                ? `Revoked admin privileges from ${user.name}`
-                                : `Granted administrator privileges to ${user.name}`
-                            );
-                          }}
-                          title={
-                            user.isAdmin
-                              ? 'Click to revoke Administrator privileges'
-                              : 'Click to grant Administrator privileges'
-                          }
-                          className={`px-2.5 py-1 rounded text-[11px] font-semibold transition inline-flex items-center gap-1 ${
-                            user.isAdmin
-                              ? 'bg-purple-100 text-purple-700 hover:bg-purple-200 border border-purple-200'
-                              : 'bg-slate-100 text-slate-500 hover:text-slate-900 hover:bg-slate-200 border border-slate-200'
-                          }`}
-                        >
-                          <Shield className="w-3 h-3 text-purple-600" />
-                          <span>{user.isAdmin ? 'Admin' : 'Make Admin'}</span>
-                        </button>
+                        <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-medium border border-slate-200">
+                          Standard Staff
+                        </span>
                       </td>
                       <td className="py-2.5 px-4">
                         <div className="flex items-center gap-2">

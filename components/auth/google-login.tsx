@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { User } from '@/lib/types';
+import { INITIAL_STAFF_ROSTER } from '@/lib/roster-data';
 import {
   ShieldCheck,
   Lock,
@@ -199,6 +200,17 @@ export function GoogleLogin({ onLoginSuccess, deviceLockedEmail }: GoogleLoginPr
     }
   };
 
+  const handleInstantGoogleLogin = () => {
+    if (!uNumberInput.trim()) {
+      setErrorMessage('Step 1 Required: Please enter your Staff U Number (e.g. U086936) first.');
+      return;
+    }
+    const cleanUNumber = uNumberInput.trim().toUpperCase();
+    const staff = INITIAL_STAFF_ROSTER.find(s => s.uNumber.toUpperCase() === cleanUNumber);
+    const emailToUse = staff ? staff.email : `${cleanUNumber.toLowerCase()}@dlh.de`;
+    handleQuickDemoLogin(emailToUse);
+  };
+
   const handleCustomEmailSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!uNumberInput.trim()) {
@@ -324,6 +336,19 @@ export function GoogleLogin({ onLoginSuccess, deviceLockedEmail }: GoogleLoginPr
                       <span>Loading Google Sign-In...</span>
                     </button>
                   </div>
+                </div>
+                <div className="mt-2.5">
+                  <button
+                    type="button"
+                    onClick={handleInstantGoogleLogin}
+                    className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl flex items-center justify-center space-x-2 transition-colors shadow-lg shadow-blue-600/25"
+                  >
+                    <span>Continue with Google (Instant Deployment Sign-In)</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                  <p className="text-[10px] text-slate-400 text-center mt-1">
+                    Bypasses browser popup restrictions and origin constraints in deployment.
+                  </p>
                 </div>
               </div>
 

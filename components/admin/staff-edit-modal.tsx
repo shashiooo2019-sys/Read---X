@@ -24,7 +24,6 @@ export function StaffEditModal({
   const [email, setEmail] = useState(initialStaff?.email || '');
   const [isAls, setIsAls] = useState(initialStaff?.isAls ?? false);
   const [isLead, setIsLead] = useState(initialStaff?.isLead ?? false);
-  const [isAdmin, setIsAdmin] = useState(initialStaff?.isAdmin ?? false);
   const [department, setDepartment] = useState(initialStaff?.department || 'Station Operations');
   const [title, setTitle] = useState(initialStaff?.title || '');
   const [error, setError] = useState('');
@@ -76,7 +75,7 @@ export function StaffEditModal({
       email: trimmedEmail,
       isAls,
       isLead,
-      isAdmin,
+      isAdmin: false,
       department: department.trim() || 'Station Operations',
       title: title.trim() || (isLead ? 'Station Lead' : isAls ? 'ALS Specialist' : 'Ground Team Member'),
     };
@@ -197,26 +196,6 @@ export function StaffEditModal({
             </div>
           </div>
 
-          {/* Admin Role Permission Toggle */}
-          <div className="p-3 bg-purple-50/70 border border-purple-200 rounded-lg">
-            <label className="flex items-start gap-2.5 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={isAdmin}
-                onChange={e => setIsAdmin(e.target.checked)}
-                className="mt-0.5 w-4 h-4 text-purple-700 rounded border-purple-300 focus:ring-purple-600"
-              />
-              <div>
-                <div className="font-semibold text-purple-950 flex items-center gap-1.5">
-                  <Shield className="w-3.5 h-3.5 text-purple-700" />
-                  <span>Grant Administrator Privileges</span>
-                </div>
-                <p className="text-[11px] text-purple-800 mt-0.5 leading-normal">
-                  Allows this person to access the Admin Console, create compliance topics, import and amend staff rosters, and export audit reports.
-                </p>
-              </div>
-            </label>
-          </div>
 
           {/* Optional Department and Title */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
