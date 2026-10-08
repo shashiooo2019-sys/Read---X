@@ -250,6 +250,17 @@ export function GoogleLogin({ onLoginSuccess, deviceLockedEmail }: GoogleLoginPr
                     </p>
                   </div>
 
+                  {/* Remarks for Non-dlh.de / UPN sign-in */}
+                  <div className="p-3 bg-slate-900/60 border border-slate-700 rounded-xl text-[11px] text-slate-300 space-y-1.5">
+                    <p className="font-semibold text-blue-300">Remarks:</p>
+                    <p className="text-slate-400 leading-relaxed">
+                      If you do not have a dlh.de sign-in, enter the UPN Number (Microsoft sign-in email) as below:
+                    </p>
+                    <p className="font-mono text-amber-300 bg-slate-950 px-2 py-1 rounded text-center text-[10px] leading-tight">
+                      If your U number is U123456 then in work email address add: u123456.sp@lhgroup.de
+                    </p>
+                  </div>
+
                   <form onSubmit={handleEmailSubmit} className="space-y-3">
                     <div>
                       <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1">

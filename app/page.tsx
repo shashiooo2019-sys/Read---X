@@ -174,11 +174,14 @@ export default function Home() {
   };
 
   // Record user acknowledgment / Read and sign (Requirement 10)
-  const handleConfirmTopic = (topicId: string, signatureText: string) => {
+  const handleConfirmTopic = (topicId: string, signatureText: string, lateReason?: string) => {
     if (!currentUser) return;
 
     const topic = topics.find(t => t.id === topicId);
     const existingIndex = confirmations.findIndex(c => c.topicId === topicId && c.userId === currentUser.id);
+
+    const isPastDeadline = topic && topic.dueDate < '2026-10-07';
+    const status = isPastDeadline ? 'pending_late_approval' : 'confirmed';
 
     const newConf: TopicConfirmation = {
       id: `conf-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -190,9 +193,10 @@ export default function Home() {
       userEmail: currentUser.email,
       userName: currentUser.name,
       confirmedAt: new Date().toISOString(),
-      status: 'confirmed',
+      status,
       signatureText: currentUser.name,
       ipAddress: '10.240.12.88',
+      lateReason: lateReason || undefined,
     };
 
     let updated: TopicConfirmation[];
@@ -204,6 +208,24 @@ export default function Home() {
       updated = [newConf, ...confirmations];
     }
 
+    setConfirmations(updated);
+    saveConfirmations(updated);
+  };
+
+  // Admin review handler for late approval (Accept / Reject)
+  const handleUpdateConfirmation = (confirmationId: string, newStatus: 'confirmed' | 'rejected', reviewNote?: string) => {
+    const updated = confirmations.map(c => {
+      if (c.id === confirmationId) {
+        return {
+          ...c,
+          status: newStatus,
+          reviewedBy: currentUser?.email,
+          reviewedAt: new Date().toISOString(),
+          adminReviewNote: reviewNote,
+        };
+      }
+      return c;
+    });
     setConfirmations(updated);
     saveConfirmations(updated);
   };
@@ -256,6 +278,7 @@ export default function Home() {
             currentUser={currentUser}
             onCreateTopic={handleCreateTopic}
             onDeleteTopic={handleDeleteTopic}
+            onUpdateConfirmation={handleUpdateConfirmation}
             onNavigateToRoster={() => setActiveTab('staff-roster')}
           />
         )}

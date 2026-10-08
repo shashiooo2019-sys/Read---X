@@ -33,9 +33,28 @@ export function CreateTopicModal({
   const [attachmentUrl, setAttachmentUrl] = useState('');
   const [attachmentName, setAttachmentName] = useState('');
   const [effectiveDate, setEffectiveDate] = useState('2026-10-08');
-  const [dueDate, setDueDate] = useState('2026-10-22');
+  const [dueDate, setDueDate] = useState('2026-10-23'); // 15 days default for Document Read and Sign
   const [version, setVersion] = useState('v1.0');
   const [formError, setFormError] = useState('');
+
+  const calculateDueDate = (t: TopicType, effDate: string): string => {
+    const d = new Date(effDate);
+    if (isNaN(d.getTime())) return effDate;
+    const days = (t === 'Document Read and Sign' || t === 'GPD/GPI Read and Sign' || t === 'AHD/AHI Read and Sign') ? 15 : 2;
+    d.setDate(d.getDate() + days);
+    return d.toISOString().split('T')[0];
+  };
+
+  const handleTypeChange = (newType: TopicType) => {
+    setType(newType);
+    if (newType !== 'Others') setCustomTypeDesc('');
+    setDueDate(calculateDueDate(newType, effectiveDate));
+  };
+
+  const handleEffectiveDateChange = (newEffDate: string) => {
+    setEffectiveDate(newEffDate);
+    setDueDate(calculateDueDate(type, newEffDate));
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -126,7 +145,7 @@ export function CreateTopicModal({
               </label>
               <select
                 value={type}
-                onChange={e => setType(e.target.value as TopicType)}
+                onChange={e => handleTypeChange(e.target.value as TopicType)}
                 className="w-full px-3 py-2 text-xs border border-slate-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-[#0078D4]"
               >
                 {TOPIC_TYPES.map(t => (
@@ -184,7 +203,7 @@ export function CreateTopicModal({
               <input
                 type="date"
                 value={effectiveDate}
-                onChange={e => setEffectiveDate(e.target.value)}
+                onChange={e => handleEffectiveDateChange(e.target.value)}
                 className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-[#0078D4]"
                 required
               />
@@ -200,6 +219,11 @@ export function CreateTopicModal({
                 className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-[#0078D4]"
                 required
               />
+              <p className="text-[10px] text-slate-500 mt-1">
+                {type === 'Document Read and Sign' || type === 'GPD/GPI Read and Sign' || type === 'AHD/AHI Read and Sign'
+                  ? 'Auto set to 15 days from published date (Read & Sign).'
+                  : 'Auto set to 2 days from published date (Training/Briefing/Role Play/Others).'}
+              </p>
             </div>
             <div>
               <label className="block font-semibold text-slate-800 mb-1">

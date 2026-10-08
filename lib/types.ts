@@ -70,9 +70,13 @@ export interface TopicConfirmation {
   userEmail?: string;
   userName?: string;
   confirmedAt: string; // ISO string
-  status: 'confirmed' | 'pending' | 're_sign_required';
+  status: 'confirmed' | 'pending' | 're_sign_required' | 'pending_late_approval' | 'rejected';
   signatureText?: string;
   ipAddress?: string;
+  lateReason?: string;
+  adminReviewNote?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
 }
 
 export interface AuthAuditLogItem {

@@ -12,14 +12,15 @@ import {
   Download,
   X,
   FileCheck2,
-  Info
+  Info,
+  AlertTriangle
 } from 'lucide-react';
 
 interface AcknowledgmentModalProps {
   topic: Topic;
   currentUser: User;
   existingConfirmation?: TopicConfirmation;
-  onConfirm: (topicId: string, signatureText: string) => void;
+  onConfirm: (topicId: string, signatureText: string, lateReason?: string) => void;
   onClose: () => void;
 }
 
@@ -30,16 +31,22 @@ export function AcknowledgmentModal({
   onConfirm,
   onClose,
 }: AcknowledgmentModalProps) {
+  const isPastDeadline = topic.dueDate < '2026-10-07';
+  const isPendingLate = existingConfirmation?.status === 'pending_late_approval';
+  const isRejected = existingConfirmation?.status === 'rejected';
+
   // Check if re-sign is required due to document version update
   const isVersionMismatch =
     !!existingConfirmation &&
+    existingConfirmation.status === 'confirmed' &&
     !!topic.version &&
     !!existingConfirmation.documentVersion &&
     existingConfirmation.documentVersion !== topic.version;
 
-  const isAlreadyConfirmed = !!existingConfirmation && !isVersionMismatch;
+  const isAlreadyConfirmed = !!existingConfirmation && existingConfirmation.status === 'confirmed' && !isVersionMismatch;
 
   const [hasAgreedTerms, setHasAgreedTerms] = useState(false);
+  const [lateReason, setLateReason] = useState(existingConfirmation?.lateReason || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successReceipt, setSuccessReceipt] = useState<string | null>(
     isAlreadyConfirmed ? existingConfirmation.id : null
@@ -50,6 +57,8 @@ export function AcknowledgmentModal({
 
   const actionButtonText = isVersionMismatch
     ? 'Acknowledge Updated Version (Re-sign)'
+    : isPastDeadline
+    ? 'Submit Late Response for Admin Review'
     : isParticipationType
     ? 'Confirm Participation & Understanding'
     : 'Read and Sign Directive';
@@ -57,10 +66,11 @@ export function AcknowledgmentModal({
   const handleSignSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!hasAgreedTerms) return;
+    if (isPastDeadline && !lateReason.trim()) return;
 
     setIsSubmitting(true);
     setTimeout(() => {
-      onConfirm(topic.id, currentUser.name);
+      onConfirm(topic.id, currentUser.name, isPastDeadline ? lateReason.trim() : undefined);
       setSuccessReceipt(`ACK-${Date.now().toString(36).toUpperCase()}`);
       setIsSubmitting(false);
     }, 600);
@@ -175,19 +185,31 @@ export function AcknowledgmentModal({
           {/* Form for Acknowledgment & Signing (if not already confirmed) */}
           {!isAlreadyConfirmed && !successReceipt && (
             <form onSubmit={handleSignSubmit} className="space-y-4 pt-2 border-t border-slate-200">
-              {/* If version changed since last acknowledgment, show Re-sign required warning */}
-              {isVersionMismatch && (
-                <div className="p-3 bg-amber-50 border border-amber-300 rounded-lg flex items-start gap-2.5 text-xs text-amber-900">
-                  <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                  <div>
-                    <strong className="block font-semibold">Document Version Updated: Re-sign Required</strong>
-                    <span>
-                      You previously acknowledged version{' '}
-                      <span className="font-mono font-bold">{existingConfirmation?.documentVersion || 'prior'}</span>.
-                      The directive has been updated to version{' '}
-                      <span className="font-mono font-bold text-amber-950">{topic.version}</span>. Re-acknowledgment is mandatory.
-                    </span>
+              {/* If deadline passed, require late reason */}
+              {isPastDeadline && (
+                <div className="p-4 bg-amber-50 border border-amber-300 rounded-lg space-y-2">
+                  <div className="flex items-center gap-2 text-amber-900 font-semibold text-xs">
+                    <AlertTriangle className="w-4 h-4 text-amber-600" />
+                    <span>Deadline Passed ({topic.dueDate}): Late Submission Justification Required</span>
                   </div>
+                  <p className="text-xs text-amber-800">
+                    The mandatory due date for this directive has passed. You may still respond and confirm, but you must provide a reason for the late response. This will be submitted to the station administrator for review and approval.
+                  </p>
+                  <textarea
+                    rows={3}
+                    value={lateReason}
+                    onChange={e => setLateReason(e.target.value)}
+                    placeholder="Enter reason for missing deadline (e.g. on leave, operational delay, sickness)..."
+                    className="w-full px-3 py-2 text-xs border border-amber-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    required
+                  />
+                </div>
+              )}
+
+              {isPendingLate && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900">
+                  <strong className="block font-semibold">Late Response Pending Admin Review</strong>
+                  <span>Your late response and reason (&ldquo;{existingConfirmation?.lateReason}&rdquo;) have been submitted and are awaiting review by the administrator.</span>
                 </div>
               )}
 

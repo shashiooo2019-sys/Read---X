@@ -41,6 +41,7 @@ interface AdminConsoleProps {
   currentUser: User;
   onCreateTopic: (topicData: Omit<Topic, 'id' | 'createdAt'>) => void;
   onDeleteTopic: (topicId: string) => void;
+  onUpdateConfirmation?: (confirmationId: string, newStatus: 'confirmed' | 'rejected', reviewNote?: string) => void;
   onNavigateToRoster?: () => void;
 }
 
@@ -78,6 +79,7 @@ export function AdminConsole({
   currentUser,
   onCreateTopic,
   onDeleteTopic,
+  onUpdateConfirmation,
   onNavigateToRoster,
 }: AdminConsoleProps) {
   // Modal states
@@ -100,6 +102,7 @@ export function AdminConsole({
 
   // Multi-select for bulk actions
   const [selectedTopicIds, setSelectedTopicIds] = useState<Set<string>>(new Set());
+  const tableScrollRef = React.useRef<HTMLDivElement>(null);
 
   // Quick counts for clickable filter boxes
   const targetGroupCounts = useMemo(() => {
@@ -909,13 +912,40 @@ export function AdminConsole({
           </div>
         </div>
 
+        {/* Horizontal Scroll Controls for non-touch screens */}
+        <div className="px-4 py-2 bg-slate-100 border-b border-slate-200 flex items-center justify-between text-xs">
+          <span className="text-slate-600 font-medium">Topic & Directive Title column is frozen. Use buttons to scroll horizontally:</span>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                if (tableScrollRef.current) tableScrollRef.current.scrollBy({ left: -250, behavior: 'smooth' });
+              }}
+              className="px-2.5 py-1 bg-white border border-slate-300 rounded text-slate-700 hover:bg-slate-50 font-bold shadow-xs cursor-pointer"
+              title="Scroll left"
+            >
+              ‹ Scroll Left
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (tableScrollRef.current) tableScrollRef.current.scrollBy({ left: 250, behavior: 'smooth' });
+              }}
+              className="px-2.5 py-1 bg-white border border-slate-300 rounded text-slate-700 hover:bg-slate-50 font-bold shadow-xs cursor-pointer"
+              title="Scroll right"
+            >
+              Scroll Right ›
+            </button>
+          </div>
+        </div>
+
         {/* Table */}
-        <div className="overflow-x-auto">
+        <div ref={tableScrollRef} className="overflow-x-auto relative">
           <table className="w-full text-left text-xs border-collapse">
             <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
               <tr>
                 <th className="py-3 px-3 w-8 text-center"></th>
-                <th className="py-3 px-4 font-semibold">Topic & Directive Title</th>
+                <th className="py-3 px-4 font-semibold sticky left-0 bg-slate-50 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[280px]">Topic & Directive Title</th>
                 <th className="py-3 px-4 font-semibold">Type & Category</th>
                 <th className="py-3 px-4 font-semibold">Target Group</th>
                 <th className="py-3 px-4 font-semibold">Due Date</th>
@@ -959,7 +989,7 @@ export function AdminConsole({
                         />
                       </td>
 
-                      <td className="py-3 px-4 max-w-xs">
+                      <td className="py-3 px-4 max-w-xs sticky left-0 bg-white z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[280px]">
                         <div
                           className="font-semibold text-slate-900 hover:text-[#0078D4] cursor-pointer"
                           onClick={() => setSelectedTopicForBreakdown(stat)}
@@ -1127,6 +1157,7 @@ export function AdminConsole({
       {selectedTopicForBreakdown && (
         <TopicBreakdownModal
           stats={selectedTopicForBreakdown}
+          onUpdateConfirmation={onUpdateConfirmation}
           onClose={() => setSelectedTopicForBreakdown(null)}
         />
       )}

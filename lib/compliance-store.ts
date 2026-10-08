@@ -129,12 +129,13 @@ export function getUserAssignedTopics(user: User, topics: Topic[]): Topic[] {
   return topics.filter(t => isUserEligibleForTopic(user, t));
 }
 
-// User status on a topic: 'confirmed' | 're_sign_required' | 'pending'
-export type UserTopicStatus = 'confirmed' | 're_sign_required' | 'pending';
+export type UserTopicStatus = 'confirmed' | 're_sign_required' | 'pending' | 'pending_late_approval' | 'rejected';
 
 export function getUserTopicStatus(topic: Topic, userId: string, confirmations: TopicConfirmation[]): UserTopicStatus {
   const conf = confirmations.find(c => c.topicId === topic.id && c.userId === userId);
   if (!conf) return 'pending';
+  if (conf.status === 'pending_late_approval') return 'pending_late_approval';
+  if (conf.status === 'rejected') return 'rejected';
   // If version has changed since confirmation: Re-sign required
   if (topic.version && conf.documentVersion && conf.documentVersion !== topic.version) {
     return 're_sign_required';
@@ -167,7 +168,7 @@ export function getConfirmationRecord(
   userId: string,
   confirmations: TopicConfirmation[]
 ): TopicConfirmation | undefined {
-  return confirmations.find(c => c.topicId === topicId && c.userId === userId && c.status === 'confirmed');
+  return confirmations.find(c => c.topicId === topicId && c.userId === userId);
 }
 
 // Topic statistics for Admin dashboard
@@ -177,10 +178,14 @@ export interface TopicComplianceStats {
   confirmedStaff: { user: User; confirmation: TopicConfirmation }[];
   missingStaff: User[];
   reSignRequiredStaff: { user: User; confirmation: TopicConfirmation }[];
+  pendingLateStaff: { user: User; confirmation: TopicConfirmation }[];
+  rejectedStaff: { user: User; confirmation: TopicConfirmation }[];
   totalEligible: number;
   totalConfirmed: number;
   totalMissing: number;
   totalReSignRequired: number;
+  totalPendingLate: number;
+  totalRejected: number;
   completionRate: number; // 0 to 100
 }
 
@@ -192,24 +197,43 @@ export function calculateTopicStats(
   const eligibleStaff = users.filter(u => isUserEligibleForTopic(u, topic));
 
   const confirmedMap = new Map<string, TopicConfirmation>();
+  const pendingLateMap = new Map<string, TopicConfirmation>();
+  const rejectedMap = new Map<string, TopicConfirmation>();
+
   confirmations
-    .filter(c => c.topicId === topic.id && c.status === 'confirmed')
-    .forEach(c => confirmedMap.set(c.userId, c));
+    .filter(c => c.topicId === topic.id)
+    .forEach(c => {
+      if (c.status === 'confirmed') confirmedMap.set(c.userId, c);
+      else if (c.status === 'pending_late_approval') pendingLateMap.set(c.userId, c);
+      else if (c.status === 'rejected') rejectedMap.set(c.userId, c);
+    });
 
   const confirmedStaff: { user: User; confirmation: TopicConfirmation }[] = [];
   const missingStaff: User[] = [];
   const reSignRequiredStaff: { user: User; confirmation: TopicConfirmation }[] = [];
+  const pendingLateStaff: { user: User; confirmation: TopicConfirmation }[] = [];
+  const rejectedStaff: { user: User; confirmation: TopicConfirmation }[] = [];
 
   eligibleStaff.forEach(u => {
     const conf = confirmedMap.get(u.id);
-    if (!conf) {
+    const pendingConf = pendingLateMap.get(u.id);
+    const rejConf = rejectedMap.get(u.id);
+
+    if (conf) {
+      if (topic.version && conf.documentVersion && conf.documentVersion !== topic.version) {
+        reSignRequiredStaff.push({ user: u, confirmation: conf });
+        missingStaff.push(u);
+      } else {
+        confirmedStaff.push({ user: u, confirmation: conf });
+      }
+    } else if (pendingConf) {
+      pendingLateStaff.push({ user: u, confirmation: pendingConf });
       missingStaff.push(u);
-    } else if (topic.version && conf.documentVersion && conf.documentVersion !== topic.version) {
-      // Document version mismatch: Re-sign required!
-      reSignRequiredStaff.push({ user: u, confirmation: conf });
-      missingStaff.push(u); // Counted toward pending compliance
+    } else if (rejConf) {
+      rejectedStaff.push({ user: u, confirmation: rejConf });
+      missingStaff.push(u);
     } else {
-      confirmedStaff.push({ user: u, confirmation: conf });
+      missingStaff.push(u);
     }
   });
 
@@ -217,6 +241,8 @@ export function calculateTopicStats(
   const totalConfirmed = confirmedStaff.length;
   const totalMissing = missingStaff.length;
   const totalReSignRequired = reSignRequiredStaff.length;
+  const totalPendingLate = pendingLateStaff.length;
+  const totalRejected = rejectedStaff.length;
   const completionRate = totalEligible > 0 ? Math.round((totalConfirmed / totalEligible) * 100) : 0;
 
   return {
@@ -225,10 +251,14 @@ export function calculateTopicStats(
     confirmedStaff,
     missingStaff,
     reSignRequiredStaff,
+    pendingLateStaff,
+    rejectedStaff,
     totalEligible,
     totalConfirmed,
     totalMissing,
     totalReSignRequired,
+    totalPendingLate,
+    totalRejected,
     completionRate,
   };
 }

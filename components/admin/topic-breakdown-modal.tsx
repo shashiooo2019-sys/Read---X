@@ -18,11 +18,12 @@ import {
 
 interface TopicBreakdownModalProps {
   stats: TopicComplianceStats;
+  onUpdateConfirmation?: (confirmationId: string, newStatus: 'confirmed' | 'rejected', reviewNote?: string) => void;
   onClose: () => void;
 }
 
-export function TopicBreakdownModal({ stats, onClose }: TopicBreakdownModalProps) {
-  const [activeTab, setActiveTab] = useState<'missing' | 'confirmed'>('missing');
+export function TopicBreakdownModal({ stats, onUpdateConfirmation, onClose }: TopicBreakdownModalProps) {
+  const [activeTab, setActiveTab] = useState<'missing' | 'confirmed' | 'pending_late'>('missing');
   const [searchStaff, setSearchStaff] = useState('');
   const [reminderSentStaff, setReminderSentStaff] = useState<Record<string, boolean>>({});
 
@@ -30,9 +31,11 @@ export function TopicBreakdownModal({ stats, onClose }: TopicBreakdownModalProps
     topic,
     confirmedStaff,
     missingStaff,
+    pendingLateStaff,
     totalEligible,
     totalConfirmed,
     totalMissing,
+    totalPendingLate,
     completionRate,
   } = stats;
 
@@ -64,6 +67,16 @@ export function TopicBreakdownModal({ stats, onClose }: TopicBreakdownModalProps
       item.user.name.toLowerCase().includes(q) ||
       item.user.email.toLowerCase().includes(q) ||
       item.user.uNumber.toLowerCase().includes(q)
+    );
+  });
+
+  const filteredPendingLate = pendingLateStaff.filter(item => {
+    const q = searchStaff.toLowerCase();
+    return (
+      item.user.name.toLowerCase().includes(q) ||
+      item.user.email.toLowerCase().includes(q) ||
+      item.user.uNumber.toLowerCase().includes(q) ||
+      (item.confirmation.lateReason && item.confirmation.lateReason.toLowerCase().includes(q))
     );
   });
 
@@ -150,6 +163,18 @@ export function TopicBreakdownModal({ stats, onClose }: TopicBreakdownModalProps
             >
               <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
               <span>Confirmed Staff ({totalConfirmed})</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('pending_late')}
+              className={`px-3 py-1.5 font-medium rounded-md transition-colors flex items-center gap-1.5 ${
+                activeTab === 'pending_late'
+                  ? 'bg-white text-slate-900 shadow-xs font-semibold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5 text-blue-600" />
+              <span>Pending Late Review ({totalPendingLate})</span>
             </button>
           </div>
 
@@ -292,6 +317,59 @@ export function TopicBreakdownModal({ stats, onClose }: TopicBreakdownModalProps
                         <span className="text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded text-[10px] font-medium">
                           Confirmed ✓
                         </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          )}
+
+          {activeTab === 'pending_late' && (
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 sticky top-0">
+                <tr>
+                  <th className="py-2.5 px-4 font-semibold">Staff Member</th>
+                  <th className="py-2.5 px-4 font-semibold">Late Reason Provided</th>
+                  <th className="py-2.5 px-4 font-semibold">Submitted At</th>
+                  <th className="py-2.5 px-4 font-semibold text-right">Admin Action (Accept / Reject)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredPendingLate.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="py-8 text-center text-slate-500">
+                      No late submissions awaiting review.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredPendingLate.map(item => (
+                    <tr key={item.user.id} className="hover:bg-blue-50/20 transition">
+                      <td className="py-2.5 px-4">
+                        <div className="font-semibold text-slate-900">{item.user.name}</div>
+                        <div className="text-[11px] text-slate-500 font-mono">{item.user.uNumber} · {item.user.email}</div>
+                      </td>
+                      <td className="py-2.5 px-4 text-slate-800 italic bg-amber-50/50 rounded p-1.5 my-1">
+                        &ldquo;{item.confirmation.lateReason || 'No reason provided'}&rdquo;
+                      </td>
+                      <td className="py-2.5 px-4 font-mono text-[11px] text-slate-600 tabular-nums">
+                        {item.confirmation.confirmedAt.replace('T', ' ').slice(0, 19)}
+                      </td>
+                      <td className="py-2.5 px-4 text-right space-x-2">
+                        <button
+                          onClick={() => onUpdateConfirmation && onUpdateConfirmation(item.confirmation.id, 'confirmed')}
+                          className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded shadow-xs transition cursor-pointer"
+                          title="Accept late response and mark confirmed"
+                        >
+                          ✓ Accept
+                        </button>
+                        <button
+                          onClick={() => onUpdateConfirmation && onUpdateConfirmation(item.confirmation.id, 'rejected')}
+                          className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white font-semibold rounded shadow-xs transition cursor-pointer"
+                          title="Reject late response"
+                        >
+                          ✕ Reject
+                        </button>
                       </td>
                     </tr>
                   ))
