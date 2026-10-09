@@ -39,6 +39,7 @@ import {
   BarChart2,
   Settings,
   Cloud,
+  X,
 } from 'lucide-react';
 import { saveAllTopicsAndAssignmentsToFirestore } from '@/lib/firebase';
 
@@ -49,6 +50,7 @@ interface AdminConsoleProps {
   currentUser: User;
   onCreateTopic: (topicData: Omit<Topic, 'id' | 'createdAt'>) => void;
   onDeleteTopic: (topicId: string) => void;
+  onCloseTopicForAcknowledgement?: (topicId: string) => void;
   onUpdateConfirmation?: (confirmationId: string, newStatus: 'confirmed' | 'rejected', reviewNote?: string) => void;
   onNavigateToRoster?: () => void;
 }
@@ -87,12 +89,14 @@ export function AdminConsole({
   currentUser,
   onCreateTopic,
   onDeleteTopic,
+  onCloseTopicForAcknowledgement,
   onUpdateConfirmation,
   onNavigateToRoster,
 }: AdminConsoleProps) {
   // Modal states
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedTopicForBreakdown, setSelectedTopicForBreakdown] = useState<TopicComplianceStats | null>(null);
+  const [topicToClose, setTopicToClose] = useState<{ topic: Topic; stat: TopicComplianceStats } | null>(null);
   const [showApprovedModal, setShowApprovedModal] = useState(false);
   const [showAuditModal, setShowAuditModal] = useState(false);
 
@@ -1294,12 +1298,26 @@ export function AdminConsole({
                           >
                             {topic.title}
                           </div>
-                          {isTopicFuturePlanned(topic) && (
-                            <span className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold bg-purple-100 text-purple-900 border border-purple-200 w-fit">
-                              <Calendar className="w-2.5 h-2.5 text-purple-700 shrink-0" />
-                              <span>Future Planned</span>
-                            </span>
-                          )}
+                          <div className="flex flex-wrap items-center gap-1">
+                            {isTopicFuturePlanned(topic) && (
+                              <span className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold bg-purple-100 text-purple-900 border border-purple-200 w-fit">
+                                <Calendar className="w-2.5 h-2.5 text-purple-700 shrink-0" />
+                                <span>Future Planned</span>
+                              </span>
+                            )}
+                            {topic.isClosed && (
+                              <span className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-200 w-fit">
+                                <CheckCircle2 className="w-2.5 h-2.5 text-emerald-700 shrink-0" />
+                                <span>Closed for Ack</span>
+                              </span>
+                            )}
+                            {!topic.isClosed && topic.dueDate && topic.dueDate < new Date().toISOString().split('T')[0] && (
+                              <span className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold bg-rose-100 text-rose-900 border border-rose-200 w-fit">
+                                <AlertTriangle className="w-2.5 h-2.5 text-rose-700 shrink-0" />
+                                <span>Overdue</span>
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <div className="text-[10px] sm:text-[11px] text-slate-500 mt-1 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-1.5">
                           <button
@@ -1446,10 +1464,28 @@ export function AdminConsole({
                       </td>
 
                       <td className="py-3 px-4 text-right space-x-1 whitespace-nowrap">
+                        {/* Close for acknowledgement if Training/Briefing/Role Play */}
+                        {topic.isClosed ? (
+                          <span className="px-2 py-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded inline-flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            <span>Closed</span>
+                          </span>
+                        ) : (topic.type === 'Training' || topic.type === 'Briefing' || topic.type === 'Role Play') &&
+                          (totalMissing === 0 || (topic.dueDate && topic.dueDate < new Date().toISOString().split('T')[0])) ? (
+                          <button
+                            onClick={() => setTopicToClose({ topic, stat })}
+                            className="px-2.5 py-1 text-[11px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded transition inline-flex items-center gap-1 shadow-xs cursor-pointer"
+                            title="Close topic for acknowledgement: verifies all assigned participants"
+                          >
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>Close for Ack</span>
+                          </button>
+                        ) : null}
+
                         {/* Breakdown drill-down */}
                         <button
                           onClick={() => setSelectedTopicForBreakdown(stat)}
-                          className="px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded transition inline-flex items-center gap-1"
+                          className="px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded transition inline-flex items-center gap-1 cursor-pointer"
                           title="View list of confirmed and missing staff for this topic"
                         >
                           <Users className="w-3 h-3 text-[#0078D4]" />
@@ -1459,7 +1495,7 @@ export function AdminConsole({
                         {/* Export Single Topic CSV */}
                         <button
                           onClick={() => exportSingleTopicReport(stat)}
-                          className="px-2 py-1 text-[11px] text-[#0078D4] hover:bg-blue-50 border border-slate-200 rounded transition inline-flex items-center gap-1"
+                          className="px-2 py-1 text-[11px] text-[#0078D4] hover:bg-blue-50 border border-slate-200 rounded transition inline-flex items-center gap-1 cursor-pointer"
                           title="Export single topic compliance report (CSV)"
                         >
                           <Download className="w-3 h-3" />
@@ -1473,7 +1509,7 @@ export function AdminConsole({
                               onDeleteTopic(topic.id);
                             }
                           }}
-                          className="p-1 text-slate-400 hover:text-red-600 rounded transition"
+                          className="p-1 text-slate-400 hover:text-red-600 rounded transition cursor-pointer"
                           title="Delete compliance topic"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -1503,8 +1539,81 @@ export function AdminConsole({
         <TopicBreakdownModal
           stats={selectedTopicForBreakdown}
           onUpdateConfirmation={onUpdateConfirmation}
+          onCloseTopicForAcknowledgement={onCloseTopicForAcknowledgement}
           onClose={() => setSelectedTopicForBreakdown(null)}
         />
+      )}
+
+      {/* Topic Close for Acknowledgement Confirmation Modal */}
+      {topicToClose && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full border border-slate-200 p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5 text-indigo-700 font-bold text-base">
+                <CheckCircle2 className="w-5 h-5" />
+                <span>Close Topic for Acknowledgement</span>
+              </div>
+              <button onClick={() => setTopicToClose(null)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-700 leading-relaxed">
+              Are you sure you want to close <strong>&ldquo;{topicToClose.topic.title}&rdquo;</strong> for acknowledgement?
+            </p>
+
+            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1.5">
+              <div className="flex justify-between text-slate-700">
+                <span>Directive Type:</span>
+                <span className="font-semibold">{topicToClose.topic.type}</span>
+              </div>
+              <div className="flex justify-between text-slate-700">
+                <span>Target Personnel:</span>
+                <span className="font-semibold">{topicToClose.stat.totalEligible} staff</span>
+              </div>
+              <div className="flex justify-between text-slate-700">
+                <span>Confirmed so far:</span>
+                <span className="font-semibold text-emerald-700">{topicToClose.stat.totalConfirmed}</span>
+              </div>
+              <div className="flex justify-between text-slate-700">
+                <span>Pending / Missing:</span>
+                <span className="font-semibold text-amber-700">{topicToClose.stat.totalMissing}</span>
+              </div>
+            </div>
+
+            <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-[11px] text-indigo-900 space-y-1">
+              <strong className="block font-semibold">Immediate Closeout Actions:</strong>
+              <ul className="list-disc list-inside space-y-0.5">
+                <li>Topic will be marked as Closed for Acknowledgement in Cloud Firestore.</li>
+                <li>Participation will be verified and marked confirmed for all remaining {topicToClose.stat.totalMissing} participant(s).</li>
+                <li>Item will be permanently cleared from each individual staff member&apos;s pending tasks queue.</li>
+              </ul>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                onClick={() => setTopicToClose(null)}
+                className="px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (onCloseTopicForAcknowledgement) {
+                    onCloseTopicForAcknowledgement(topicToClose.topic.id);
+                  }
+                  setTopicToClose(null);
+                  if (selectedTopicForBreakdown?.topic.id === topicToClose.topic.id) {
+                    setSelectedTopicForBreakdown(null);
+                  }
+                }}
+                className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition shadow-xs cursor-pointer"
+              >
+                Confirm Close &amp; Verify All Participations
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Admin Approved Users Whitelist Modal */}

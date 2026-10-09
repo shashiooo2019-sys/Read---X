@@ -24,6 +24,10 @@ import {
   saveTopicToFirestore,
   saveTopicAssignmentsToFirestore,
   deleteTopicFromFirestore,
+  saveUserToFirestore,
+  deleteUserFromFirestore,
+  saveAllUsersToFirestore,
+  closeTopicForAcknowledgementInFirestore,
 } from '@/lib/firebase';
 import { GoogleLogin } from '@/components/auth/google-login';
 import { TopBar } from '@/components/navigation/top-bar';
@@ -44,12 +48,11 @@ export default function Home() {
   const [topics, setTopics] = useState<Topic[]>(() => getStoredTopics());
   const [confirmations, setConfirmations] = useState<TopicConfirmation[]>(() => getStoredConfirmations());
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [deviceLockedEmail, setDeviceLockedEmail] = useState<string | null>(null);
   const [sessionChecking, setSessionChecking] = useState(true);
   const [activeTab, setActiveTab] = useState<'my-compliance' | 'admin-console' | 'staff-roster' | 'reports'>('my-compliance');
   const [firestoreConfirmation, setFirestoreConfirmation] = useState<FirestoreConfirmationDetails | null>(null);
 
-  // Verify server session on load (Requirement 4 & 11: Never trust client-only state)
+  // Verify server session on load (Zero browser storage, authenticated session check)
   useEffect(() => {
     async function checkServerSession() {
       try {
@@ -66,9 +69,6 @@ export default function Home() {
           } else {
             setCurrentUser(null);
             setCurrentUserId(null);
-          }
-          if (data.deviceLockedEmail) {
-            setDeviceLockedEmail(data.deviceLockedEmail);
           }
         }
       } catch (err) {
@@ -117,7 +117,6 @@ export default function Home() {
   const handleLoginSuccess = (user: User) => {
     setCurrentUser(user);
     setCurrentUserId(user.id);
-    setDeviceLockedEmail(user.email);
     if (user.isAdmin) {
       setActiveTab('admin-console');
     } else {
@@ -125,17 +124,10 @@ export default function Home() {
     }
   };
 
-  // Logout handler (Session cleared on server, device remains bound)
+  // Logout handler (Session cleared on server, zero device lock)
   const handleLogout = async () => {
     try {
-      const res = await fetch('/api/auth/logout', { method: 'POST' });
-      const contentType = res.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
-        const data = await res.json();
-        if (data.deviceLockedEmail) {
-          setDeviceLockedEmail(data.deviceLockedEmail);
-        }
-      }
+      await fetch('/api/auth/logout', { method: 'POST' });
     } catch {
       // ignore
     }
@@ -219,24 +211,51 @@ export default function Home() {
   };
 
   // Add staff member
-  const handleAddStaff = (newStaff: User) => {
+  const handleAddStaff = async (newStaff: User) => {
     const updated = [...users, newStaff];
     setUsers(updated);
     saveUsers(updated);
+    try {
+      await saveUserToFirestore(newStaff);
+      setFirestoreConfirmation({
+        title: 'Staff Member Saved to Firestore',
+        recordType: 'roster_sync',
+        userName: newStaff.name,
+        uNumber: newStaff.uNumber,
+        collections: ['users'],
+        statusText: `${newStaff.name} (${newStaff.uNumber}) was saved to Firestore station roster. Zero browser storage.`,
+      });
+    } catch (err) {
+      console.warn('Firebase staff save notice:', err);
+    }
   };
 
   // Amend / Update staff member
-  const handleUpdateStaff = (updatedStaff: User) => {
+  const handleUpdateStaff = async (updatedStaff: User) => {
     const updated = users.map(u => (u.id === updatedStaff.id ? updatedStaff : u));
     setUsers(updated);
     saveUsers(updated);
     if (currentUser && currentUser.id === updatedStaff.id) {
       setCurrentUser(updatedStaff);
     }
+    try {
+      await saveUserToFirestore(updatedStaff);
+      setFirestoreConfirmation({
+        title: 'Staff Record Updated in Firestore',
+        recordType: 'roster_sync',
+        userName: updatedStaff.name,
+        uNumber: updatedStaff.uNumber,
+        collections: ['users'],
+        statusText: `${updatedStaff.name}'s profile and qualifications were saved to Firestore. Zero browser storage.`,
+      });
+    } catch (err) {
+      console.warn('Firebase staff update notice:', err);
+    }
   };
 
   // Delete staff member
-  const handleDeleteStaff = (userId: string) => {
+  const handleDeleteStaff = async (userId: string) => {
+    const staffToDelete = users.find(u => u.id === userId);
     const updated = users.filter(u => u.id !== userId);
     setUsers(updated);
     saveUsers(updated);
@@ -244,10 +263,22 @@ export default function Home() {
     const updatedConfirmations = confirmations.filter(c => c.userId !== userId);
     setConfirmations(updatedConfirmations);
     saveConfirmations(updatedConfirmations);
+    try {
+      await deleteUserFromFirestore(userId);
+      setFirestoreConfirmation({
+        title: 'Staff Member Removed from Firestore',
+        recordType: 'roster_sync',
+        userName: staffToDelete?.name || userId,
+        collections: ['users'],
+        statusText: `${staffToDelete?.name || userId} was removed from the Firestore database. Zero browser storage.`,
+      });
+    } catch (err) {
+      console.warn('Firebase staff deletion notice:', err);
+    }
   };
 
   // Bulk update / import staff
-  const handleBulkUpdateStaff = (updatedList: User[]) => {
+  const handleBulkUpdateStaff = async (updatedList: User[]) => {
     setUsers(updatedList);
     saveUsers(updatedList);
     if (currentUser) {
@@ -255,6 +286,18 @@ export default function Home() {
       if (updatedCurrent) {
         setCurrentUser(updatedCurrent);
       }
+    }
+    try {
+      await saveAllUsersToFirestore(updatedList);
+      setFirestoreConfirmation({
+        title: 'Staff Roster Synchronized with Firestore',
+        recordType: 'roster_sync',
+        assignedCount: updatedList.length,
+        collections: ['users'],
+        statusText: `All ${updatedList.length} staff records were saved to Firestore. Zero browser storage.`,
+      });
+    } catch (err) {
+      console.warn('Firebase bulk staff save notice:', err);
     }
   };
 
@@ -265,8 +308,9 @@ export default function Home() {
     const topic = topics.find(t => t.id === topicId);
     const existingIndex = confirmations.findIndex(c => c.topicId === topicId && c.userId === currentUser.id);
 
-    const isPastDeadline = topic && topic.dueDate < '2026-10-07';
-    const status = isPastDeadline ? 'pending_late_approval' : 'confirmed';
+    const todayStr = new Date().toISOString().split('T')[0];
+    const isPastDeadline = Boolean(topic && topic.dueDate && topic.dueDate < todayStr);
+    const status = 'confirmed';
 
     const newConf: TopicConfirmation = {
       id: `conf-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -281,7 +325,10 @@ export default function Home() {
       status,
       signatureText: currentUser.name,
       ipAddress: '10.240.12.88',
-      lateReason: lateReason || undefined,
+      lateReason: lateReason?.trim() || undefined,
+      lateRemark: lateReason?.trim() || undefined,
+      isLate: isPastDeadline,
+      adminReviewNote: isPastDeadline && lateReason?.trim() ? `Late acknowledgment justification: ${lateReason.trim()}` : undefined,
     };
 
     let updated: TopicConfirmation[];
@@ -301,16 +348,88 @@ export default function Home() {
       await saveVerificationToFirestore(newConf);
       // Trigger confirmation pop-up
       setFirestoreConfirmation({
-        title: 'Compliance Acknowledgment Saved to Firestore',
+        title: isPastDeadline ? 'Overdue Compliance Acknowledgment Saved to Firestore' : 'Compliance Acknowledgment Saved to Firestore',
         recordType: 'acknowledgment',
         topicTitle: topic ? topic.title : topicId,
         userName: currentUser.name,
         uNumber: currentUser.uNumber,
-        collections: ['compliance_verifications'],
+        collections: ['compliance_verifications', 'topic_assignments'],
         timestamp: newConf.confirmedAt,
+        statusText: isPastDeadline
+          ? `Overdue directive "${topic?.title || topicId}" was acknowledged with mandatory reason for delay ("${lateReason?.trim()}"). Permanently saved to Cloud Firestore. Zero browser storage.`
+          : `Acknowledgment and digital signature for "${topic?.title || topicId}" were permanently saved to Cloud Firestore. Zero browser storage.`,
       });
     } catch (err) {
       console.warn('Firebase direct verification save notice:', err);
+    }
+  };
+
+  // Close topic for acknowledgement (Trainings, Briefings, Role Plays)
+  const handleCloseTopic = async (topicId: string) => {
+    const topicToClose = topics.find(t => t.id === topicId);
+    if (!topicToClose) return;
+
+    const nowIso = new Date().toISOString();
+    const closedTopic: Topic = {
+      ...topicToClose,
+      isClosed: true,
+      closedAt: nowIso,
+      closedBy: currentUser?.email || 'Administrator',
+      closedReason: 'Topic closed for acknowledgement by Administrator. Participation verified.',
+    };
+
+    const updatedTopics = topics.map(t => (t.id === topicId ? closedTopic : t));
+    setTopics(updatedTopics);
+    saveTopics(updatedTopics, users);
+
+    // Identify all eligible staff for this topic who do not already have a confirmed verification
+    const eligibleStaff = users.filter(u => isUserEligibleForTopic(u, closedTopic));
+    const unconfirmedStaff = eligibleStaff.filter(
+      u => !confirmations.some(c => c.topicId === topicId && c.userId === u.id && c.status === 'confirmed')
+    );
+
+    const autoVerifications: TopicConfirmation[] = unconfirmedStaff.map(staff => ({
+      id: `conf-${topicId}-${staff.id}`,
+      topicId: topicId,
+      documentId: topicId,
+      documentTitle: closedTopic.title,
+      documentVersion: closedTopic.version || 'v1.0',
+      userId: staff.id,
+      userEmail: staff.email,
+      userName: staff.name,
+      confirmedAt: nowIso,
+      status: 'confirmed',
+      signatureText: 'Participation Verified by Admin (Closed Session)',
+      adminReviewNote: 'Participation verified & confirmed upon admin closure',
+      reviewedBy: currentUser?.email || 'Administrator',
+      reviewedAt: nowIso,
+    }));
+
+    const existingOtherConfs = confirmations.filter(
+      c => !autoVerifications.some(ac => ac.topicId === c.topicId && ac.userId === c.userId)
+    );
+    const updatedConfirmations = [...autoVerifications, ...existingOtherConfs];
+    setConfirmations(updatedConfirmations);
+    saveConfirmations(updatedConfirmations);
+
+    try {
+      await closeTopicForAcknowledgementInFirestore(
+        topicId,
+        currentUser?.email || 'Administrator',
+        unconfirmedStaff
+      );
+
+      setFirestoreConfirmation({
+        title: 'Topic Closed & Participations Verified in Firestore',
+        recordType: 'topic_closed',
+        topicTitle: closedTopic.title,
+        assignedCount: eligibleStaff.length,
+        collections: ['topics', 'compliance_verifications', 'topic_assignments'],
+        timestamp: nowIso,
+        statusText: `"${closedTopic.title}" was closed for acknowledgement. All ${eligibleStaff.length} participant records were verified and permanently saved to Cloud Firestore. Zero browser storage.`,
+      });
+    } catch (err) {
+      console.warn('Firebase error closing topic for acknowledgement:', err);
     }
   };
 
@@ -365,7 +484,6 @@ export default function Home() {
     return (
       <GoogleLogin
         onLoginSuccess={handleLoginSuccess}
-        deviceLockedEmail={deviceLockedEmail}
       />
     );
   }
@@ -400,6 +518,7 @@ export default function Home() {
             currentUser={currentUser}
             onCreateTopic={handleCreateTopic}
             onDeleteTopic={handleDeleteTopic}
+            onCloseTopicForAcknowledgement={handleCloseTopic}
             onUpdateConfirmation={handleUpdateConfirmation}
             onNavigateToRoster={() => setActiveTab('staff-roster')}
           />

@@ -60,6 +60,10 @@ export interface Topic {
   createdAt: string; // ISO string
   createdBy: string; // User email or name
   version?: string;
+  isClosed?: boolean; // Closed for acknowledgement by Admin
+  closedAt?: string; // ISO string
+  closedBy?: string; // Admin user email
+  closedReason?: string;
 }
 
 export interface TopicAssignment {
@@ -76,6 +80,10 @@ export interface TopicAssignment {
   assignedAt: string; // ISO timestamp
   dueDate: string; // YYYY-MM-DD
   status: 'assigned' | 'confirmed' | 'pending';
+  // Staff qualifications and attributes
+  isAls?: boolean;
+  isLead?: boolean;
+  staffQualification?: string; // 'ALS', 'Lead', 'ALS & Lead', 'Standard'
 }
 
 export interface TopicConfirmation {
@@ -91,7 +99,9 @@ export interface TopicConfirmation {
   status: 'confirmed' | 'pending' | 're_sign_required' | 'pending_late_approval' | 'rejected';
   signatureText?: string;
   ipAddress?: string;
-  lateReason?: string;
+  lateReason?: string; // Remark explaining delay in acknowledgment
+  lateRemark?: string;
+  isLate?: boolean;
   adminReviewNote?: string;
   reviewedBy?: string;
   reviewedAt?: string;
@@ -110,8 +120,7 @@ export interface AuthAuditLogItem {
     | 'user_reactivated'
     | 'user_approved'
     | 'user_created'
-    | 'session_invalidated'
-    | 'device_associated';
+    | 'session_invalidated';
   userId?: string;
   performedBy: string;
   targetEmail?: string;

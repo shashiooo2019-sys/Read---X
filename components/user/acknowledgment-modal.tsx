@@ -31,9 +31,18 @@ export function AcknowledgmentModal({
   onConfirm,
   onClose,
 }: AcknowledgmentModalProps) {
-  const isPastDeadline = topic.dueDate < '2026-10-07';
+  const todayStr = new Date().toISOString().split('T')[0];
+  const isPastDeadline = Boolean(topic.dueDate && topic.dueDate < todayStr);
   const isPendingLate = existingConfirmation?.status === 'pending_late_approval';
   const isRejected = existingConfirmation?.status === 'rejected';
+
+  const isReadAndSign =
+    topic.type === 'Document Read and Sign' ||
+    topic.type === 'GPD/GPI Read and Sign' ||
+    topic.type === 'AHD/AHI Read and Sign';
+
+  const isParticipationType =
+    topic.type === 'Training' || topic.type === 'Briefing' || topic.type === 'Role Play';
 
   // Check if re-sign is required due to document version update
   const isVersionMismatch =
@@ -41,32 +50,36 @@ export function AcknowledgmentModal({
     existingConfirmation.status === 'confirmed' &&
     !!topic.version &&
     !!existingConfirmation.documentVersion &&
-    existingConfirmation.documentVersion !== topic.version;
+    existingConfirmation.documentVersion !== topic.version &&
+    !topic.isClosed;
 
-  const isAlreadyConfirmed = !!existingConfirmation && existingConfirmation.status === 'confirmed' && !isVersionMismatch;
+  const isAlreadyConfirmed =
+    Boolean(topic.isClosed) ||
+    (!!existingConfirmation && existingConfirmation.status === 'confirmed' && !isVersionMismatch);
 
   const [hasAgreedTerms, setHasAgreedTerms] = useState(false);
   const [lateReason, setLateReason] = useState(existingConfirmation?.lateReason || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successReceipt, setSuccessReceipt] = useState<string | null>(
-    isAlreadyConfirmed ? existingConfirmation.id : null
+    isAlreadyConfirmed ? existingConfirmation?.id || `closed-${topic.id}` : null
   );
-
-  const isParticipationType =
-    topic.type === 'Training' || topic.type === 'Briefing' || topic.type === 'Role Play';
 
   const actionButtonText = isVersionMismatch
     ? 'Acknowledge Updated Version (Re-sign)'
+    : isPastDeadline && isReadAndSign
+    ? 'Submit Overdue Acknowledgment (Remark Attached)'
     : isPastDeadline
-    ? 'Submit Late Response for Admin Review'
+    ? 'Submit Late Response'
     : isParticipationType
     ? 'Confirm Participation & Understanding'
     : 'Read and Sign Directive';
 
+  const canSubmit = hasAgreedTerms && !isSubmitting && (!isPastDeadline || !isReadAndSign || lateReason.trim().length > 0);
+
   const handleSignSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!hasAgreedTerms) return;
-    if (isPastDeadline && !lateReason.trim()) return;
+    if (isPastDeadline && isReadAndSign && !lateReason.trim()) return;
 
     setIsSubmitting(true);
     setTimeout(() => {
@@ -161,12 +174,23 @@ export function AcknowledgmentModal({
             <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-lg space-y-2">
               <div className="flex items-center gap-2 text-emerald-800 font-semibold text-sm">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                <span>Compliance Verified & Signed</span>
+                <span>
+                  {topic.isClosed
+                    ? 'Session Closed & Participation Verified'
+                    : 'Compliance Verified & Signed'}
+                </span>
               </div>
               <p className="text-xs text-emerald-700">
-                You have confirmed acknowledgment and understanding of this topic under your Microsoft 365
-                authenticated identity.
+                {topic.isClosed
+                  ? 'This compliance session was closed for acknowledgement by station administrator. Participation is verified and permanently confirmed in Cloud Firestore.'
+                  : 'You have confirmed acknowledgment and understanding of this topic under your Microsoft 365 authenticated identity.'}
               </p>
+              {existingConfirmation?.lateReason && (
+                <div className="p-2.5 bg-amber-50/90 border border-amber-200 rounded text-xs text-amber-900 mt-2">
+                  <span className="font-semibold block text-[11px] text-amber-800">Recorded Delay Explanation:</span>
+                  <p className="italic mt-0.5">&ldquo;{existingConfirmation.lateReason}&rdquo;</p>
+                </div>
+              )}
               <div className="pt-2 border-t border-emerald-200 grid grid-cols-2 gap-2 text-xs text-emerald-900">
                 <div>
                   <span className="text-emerald-700 block text-[11px]">Staff Name:</span>
@@ -175,7 +199,7 @@ export function AcknowledgmentModal({
                 <div>
                   <span className="text-emerald-700 block text-[11px]">Confirmation Timestamp:</span>
                   <span className="font-mono tabular-nums">
-                    {existingConfirmation?.confirmedAt || new Date().toISOString()}
+                    {existingConfirmation?.confirmedAt || topic.closedAt || new Date().toISOString()}
                   </span>
                 </div>
               </div>
@@ -187,22 +211,34 @@ export function AcknowledgmentModal({
             <form onSubmit={handleSignSubmit} className="space-y-4 pt-2 border-t border-slate-200">
               {/* If deadline passed, require late reason */}
               {isPastDeadline && (
-                <div className="p-4 bg-amber-50 border border-amber-300 rounded-lg space-y-2">
-                  <div className="flex items-center gap-2 text-amber-900 font-semibold text-xs">
-                    <AlertTriangle className="w-4 h-4 text-amber-600" />
-                    <span>Deadline Passed ({topic.dueDate}): Late Submission Justification Required</span>
+                <div className={`p-4 rounded-lg space-y-2 border ${isReadAndSign ? 'bg-rose-50 border-rose-300' : 'bg-amber-50 border-amber-300'}`}>
+                  <div className={`flex items-center gap-2 font-bold text-xs ${isReadAndSign ? 'text-rose-900' : 'text-amber-900'}`}>
+                    <AlertTriangle className={`w-4 h-4 ${isReadAndSign ? 'text-rose-600' : 'text-amber-600'}`} />
+                    <span>
+                      {isReadAndSign ? 'OVERDUE DIRECTIVE' : 'Deadline Passed'} (Mandatory Due Date was {topic.dueDate}): Late Explanation Remark Required
+                    </span>
                   </div>
-                  <p className="text-xs text-amber-800">
-                    The mandatory due date for this directive has passed. You may still respond and confirm, but you must provide a reason for the late response. This will be submitted to the station administrator for review and approval.
+                  <p className={`text-xs ${isReadAndSign ? 'text-rose-800' : 'text-amber-800'} leading-relaxed`}>
+                    This Read &amp; Sign document has exceeded its mandatory acknowledgment deadline. Acknowledgment is still permitted and required, but you <strong>must provide a mandatory remark explaining the reason for delay</strong>. This explanation will be permanently recorded in the Firestore compliance audit trail.
                   </p>
-                  <textarea
-                    rows={3}
-                    value={lateReason}
-                    onChange={e => setLateReason(e.target.value)}
-                    placeholder="Enter reason for missing deadline (e.g. on leave, operational delay, sickness)..."
-                    className="w-full px-3 py-2 text-xs border border-amber-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-amber-500"
-                    required
-                  />
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Reason for Delay in Acknowledgment (Mandatory) <span className="text-rose-600">*</span>
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={lateReason}
+                      onChange={e => setLateReason(e.target.value)}
+                      placeholder="Enter mandatory reason explaining the delay (e.g. annual leave, operational station redeployment, medical absence, flight disruption)..."
+                      className="w-full px-3 py-2 text-xs border border-rose-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-rose-500 font-sans"
+                      required
+                    />
+                    {!lateReason.trim() && (
+                      <p className="text-[11px] text-rose-600 font-medium mt-1 flex items-center gap-1">
+                        <span>⚠️ You must provide a delay remark before the acknowledgment signature can be recorded.</span>
+                      </p>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -268,9 +304,9 @@ export function AcknowledgmentModal({
 
                 <button
                   type="submit"
-                  disabled={!hasAgreedTerms || isSubmitting}
+                  disabled={!canSubmit}
                   className={`px-5 py-2 text-xs font-medium text-white rounded transition shadow-sm flex items-center gap-2 ${
-                    hasAgreedTerms && !isSubmitting
+                    canSubmit
                       ? 'bg-[#0078D4] hover:bg-[#106EBE]'
                       : 'bg-slate-300 cursor-not-allowed text-slate-500'
                   }`}

@@ -14,15 +14,12 @@ import {
 
 interface GoogleLoginProps {
   onLoginSuccess: (user: User) => void;
-  deviceLockedEmail?: string | null;
 }
 
-export function GoogleLogin({ onLoginSuccess, deviceLockedEmail }: GoogleLoginProps) {
+export function GoogleLogin({ onLoginSuccess }: GoogleLoginProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
-  const [isDeviceLocked, setIsDeviceLocked] = useState(!!deviceLockedEmail);
-  const [lockedAccountEmail, setLockedAccountEmail] = useState(deviceLockedEmail || '');
 
   // Auth steps: 'email' | 'password_setup' | 'password_login'
   const [authStep, setAuthStep] = useState<'email' | 'password_setup' | 'password_login'>('email');
@@ -35,22 +32,6 @@ export function GoogleLogin({ onLoginSuccess, deviceLockedEmail }: GoogleLoginPr
   const [adminUsername, setAdminUsername] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [adminLoading, setAdminLoading] = useState(false);
-
-  useEffect(() => {
-    async function checkDevice() {
-      try {
-        const res = await fetch('/api/auth/session');
-        const data = await res.json();
-        if (data.deviceLockedEmail) {
-          setIsDeviceLocked(true);
-          setLockedAccountEmail(data.deviceLockedEmail);
-        }
-      } catch (err) {
-        console.error('Failed to query device status', err);
-      }
-    }
-    checkDevice();
-  }, []);
 
   // Step 1: Submit work email
   const handleEmailSubmit = async (e: React.FormEvent) => {
@@ -204,19 +185,6 @@ export function GoogleLogin({ onLoginSuccess, deviceLockedEmail }: GoogleLoginPr
         </div>
 
         <div className="p-8 space-y-6">
-          {/* Device Lock Notice if applicable */}
-          {isDeviceLocked && lockedAccountEmail && (
-            <div className="bg-amber-950/40 border border-amber-600/40 rounded-xl p-4 text-xs text-amber-200 space-y-1">
-              <div className="flex items-center space-x-2 font-semibold text-amber-300">
-                <Lock className="w-4 h-4 shrink-0" />
-                <span>Device Securely Bound</span>
-              </div>
-              <p>
-                This device is bound to account: <strong className="text-white underline">{lockedAccountEmail}</strong>.
-              </p>
-            </div>
-          )}
-
           {/* Error Message */}
           {errorMessage && (
             <div className="bg-rose-950/50 border border-rose-600/50 rounded-xl p-4 text-xs text-rose-200 flex items-start space-x-3">

@@ -19,13 +19,31 @@ import {
 interface TopicBreakdownModalProps {
   stats: TopicComplianceStats;
   onUpdateConfirmation?: (confirmationId: string, newStatus: 'confirmed' | 'rejected', reviewNote?: string) => void;
+  onCloseTopicForAcknowledgement?: (topicId: string) => void;
   onClose: () => void;
 }
 
-export function TopicBreakdownModal({ stats, onUpdateConfirmation, onClose }: TopicBreakdownModalProps) {
+export function TopicBreakdownModal({
+  stats,
+  onUpdateConfirmation,
+  onCloseTopicForAcknowledgement,
+  onClose,
+}: TopicBreakdownModalProps) {
   const [activeTab, setActiveTab] = useState<'missing' | 'confirmed' | 'pending_late'>('missing');
   const [searchStaff, setSearchStaff] = useState('');
   const [reminderSentStaff, setReminderSentStaff] = useState<Record<string, boolean>>({});
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const isPastDeadline = Boolean(stats.topic.dueDate && stats.topic.dueDate < todayStr);
+  const isTrainingBriefingOrRolePlay =
+    stats.topic.type === 'Training' ||
+    stats.topic.type === 'Briefing' ||
+    stats.topic.type === 'Role Play';
+
+  const canCloseForAck =
+    isTrainingBriefingOrRolePlay &&
+    !stats.topic.isClosed &&
+    (stats.totalMissing === 0 || isPastDeadline);
 
   const {
     topic,
@@ -92,12 +110,38 @@ export function TopicBreakdownModal({ stats, onUpdateConfirmation, onClose }: To
               <span>Target: <strong className="text-slate-800">{topic.targetGroup}</strong></span>
               <span aria-hidden="true">·</span>
               <span>Due: <span className="tabular-nums font-mono">{topic.dueDate}</span></span>
+              {topic.isClosed && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span className="font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full text-[10px]">
+                    ✓ Closed for Acknowledgement
+                  </span>
+                </>
+              )}
             </div>
-            <h2 className="text-lg font-bold text-slate-900 leading-snug">{topic.title}</h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-lg font-bold text-slate-900 leading-snug">{topic.title}</h2>
+              {canCloseForAck && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm(`Close "${topic.title}" for acknowledgement?\n\nThis will:\n1. Permanently finalize and close the topic in Firestore.\n2. Mark all ${totalMissing} pending participants as confirmed/verified.\n3. Remove this topic from their pending queue.`)) {
+                      onCloseTopicForAcknowledgement?.(topic.id);
+                      onClose();
+                    }
+                  }}
+                  className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                  title="Close topic for acknowledgement: verifies all assigned participants"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Close Topic for Acknowledgement</span>
+                </button>
+              )}
+            </div>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-700 p-1.5 rounded-md hover:bg-slate-200/60 transition"
+            className="text-slate-400 hover:text-slate-700 p-1.5 rounded-md hover:bg-slate-200/60 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>

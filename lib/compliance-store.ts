@@ -35,11 +35,8 @@ const isBrowser = typeof window !== 'undefined';
 // PURGE ANY LEGACY BROWSER LOCAL STORAGE (Zero browser storage policy)
 if (isBrowser) {
   try {
-    localStorage.removeItem('read_and_sign_users_v1');
-    localStorage.removeItem('read_and_sign_topics_v1');
-    localStorage.removeItem('read_and_sign_confirmations_v1');
-    localStorage.removeItem('read_and_sign_current_user_id_v1');
-    localStorage.removeItem('read_and_sign_m365_session_v1');
+    localStorage.clear();
+    sessionStorage.clear();
   } catch {
     // ignore
   }
@@ -250,16 +247,44 @@ export function getUserAssignedTopics(user: User, topics: Topic[]): Topic[] {
 
 export type UserTopicStatus = 'confirmed' | 're_sign_required' | 'pending' | 'pending_late_approval' | 'rejected';
 
+export function isTopicOverdue(topic: Topic, todayDate?: string): boolean {
+  if (topic.isClosed) return false;
+  const today = todayDate || new Date().toISOString().split('T')[0];
+  return Boolean(topic.dueDate && topic.dueDate < today);
+}
+
+export function isReadAndSignTopic(topic: Topic): boolean {
+  return (
+    topic.type === 'Document Read and Sign' ||
+    topic.type === 'GPD/GPI Read and Sign' ||
+    topic.type === 'AHD/AHI Read and Sign'
+  );
+}
+
+export function isInteractiveSessionTopic(topic: Topic): boolean {
+  return (
+    topic.type === 'Training' ||
+    topic.type === 'Briefing' ||
+    topic.type === 'Role Play'
+  );
+}
+
 export function getUserTopicStatus(topic: Topic, userId: string, confirmations: TopicConfirmation[]): UserTopicStatus {
   const conf = confirmations.find(c => c.topicId === topic.id && c.userId === userId);
-  if (!conf) return 'pending';
-  if (conf.status === 'pending_late_approval') return 'pending_late_approval';
-  if (conf.status === 'rejected') return 'rejected';
-  // If version has changed since confirmation: Re-sign required
-  if (topic.version && conf.documentVersion && conf.documentVersion !== topic.version) {
-    return 're_sign_required';
+  if (conf) {
+    if (conf.status === 'pending_late_approval') return 'pending_late_approval';
+    if (conf.status === 'rejected') return 'rejected';
+    // If version has changed since confirmation: Re-sign required (unless closed)
+    if (topic.version && conf.documentVersion && conf.documentVersion !== topic.version && !topic.isClosed) {
+      return 're_sign_required';
+    }
+    return conf.status === 'confirmed' ? 'confirmed' : 'pending';
   }
-  return conf.status === 'confirmed' ? 'confirmed' : 'pending';
+  // If topic was closed for acknowledgement by Admin (Trainings, Briefings, Role Plays), participation is verified & confirmed:
+  if (topic.isClosed) {
+    return 'confirmed';
+  }
+  return 'pending';
 }
 
 // Confirmation state for user on a topic
@@ -270,6 +295,9 @@ export function isTopicConfirmedByUser(
 ): boolean {
   const topicId = typeof topicOrId === 'string' ? topicOrId : topicOrId.id;
   const topicVersion = typeof topicOrId === 'string' ? undefined : topicOrId.version;
+  const isClosed = typeof topicOrId === 'string' ? false : Boolean(topicOrId.isClosed);
+
+  if (isClosed) return true;
 
   const conf = confirmations.find(c => c.topicId === topicId && c.userId === userId && c.status === 'confirmed');
   if (!conf) return false;
@@ -355,6 +383,29 @@ export function calculateTopicStats(
       missingStaff.push(u);
     }
   });
+
+  if (topic.isClosed) {
+    eligibleStaff.forEach(u => {
+      const alreadyConfirmed = confirmedStaff.some(c => c.user.id === u.id);
+      if (!alreadyConfirmed) {
+        const autoConf: TopicConfirmation = {
+          id: `conf-${topic.id}-${u.id}`,
+          topicId: topic.id,
+          userId: u.id,
+          userName: u.name,
+          userEmail: u.email,
+          confirmedAt: topic.closedAt || new Date().toISOString(),
+          status: 'confirmed',
+          signatureText: 'Participation Verified by Admin (Closed Session)',
+          adminReviewNote: 'Participation verified & confirmed upon admin closeout',
+        };
+        confirmedStaff.push({ user: u, confirmation: autoConf });
+      }
+    });
+    missingStaff.length = 0;
+    reSignRequiredStaff.length = 0;
+    pendingLateStaff.length = 0;
+  }
 
   const totalEligible = eligibleStaff.length;
   const totalConfirmed = confirmedStaff.length;

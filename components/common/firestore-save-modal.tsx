@@ -5,7 +5,7 @@ import { CheckCircle2, Cloud, Database, X, ShieldCheck, ArrowRight, Layers } fro
 
 export interface FirestoreConfirmationDetails {
   title: string;
-  recordType: 'acknowledgment' | 'topic_created' | 'topic_deleted' | 'roster_sync' | 'admin_review';
+  recordType: 'acknowledgment' | 'topic_created' | 'topic_deleted' | 'roster_sync' | 'admin_review' | 'topic_closed';
   topicTitle?: string;
   userName?: string;
   uNumber?: string;
@@ -85,9 +85,13 @@ export function FirestoreSaveModal({ confirmation, onClose }: FirestoreSaveModal
                 {confirmation.title}
               </h4>
               <p className="text-emerald-800 text-xs leading-relaxed">
-                {isAck && 'Your read & sign acknowledgment and digital signature were permanently recorded in Firestore.'}
-                {isTopic && `The topic directive and all assignments for ${confirmation.assignedCount || 1} staff member(s) were stored in Firestore.`}
-                {!isAck && !isTopic && 'Your updates have been permanently committed to Cloud Firestore.'}
+                {confirmation.statusText || (
+                  isAck
+                    ? 'Your read & sign acknowledgment and digital signature were permanently recorded in Firestore.'
+                    : isTopic
+                    ? `The topic directive and all assignments for ${confirmation.assignedCount || 1} staff member(s) were stored in Firestore.`
+                    : 'Your updates have been permanently committed to Cloud Firestore.'
+                )}
               </p>
             </div>
           </div>

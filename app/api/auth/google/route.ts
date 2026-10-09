@@ -5,6 +5,8 @@ const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '9748229036
 
 export async function POST(req: NextRequest) {
   try {
+    const userAgent = req.headers.get('user-agent') || 'unknown-client';
+    const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || '127.0.0.1';
     const body = await req.json();
     const { credential, uNumber } = body;
 
@@ -110,27 +112,6 @@ export async function POST(req: NextRequest) {
         { status: 403 }
       );
     }
-
-    // Device locking check
-    const userAgent = req.headers.get('user-agent') || 'unknown-device';
-    const clientIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
-    const deviceKey = `${clientIp}_${userAgent.substring(0, 50)}`;
-
-    const lockedEmail = serverAuthStore.getDeviceLock(deviceKey);
-    if (lockedEmail && lockedEmail !== googleEmail) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'DEVICE_LOCKED',
-          message: `This device is already associated with another Read & Sign account (${lockedEmail}). Please contact the administrator if your registered email address needs to be changed.`,
-          lockedEmail,
-        },
-        { status: 403 }
-      );
-    }
-
-    // Lock device to this email
-    serverAuthStore.setDeviceLock(deviceKey, googleEmail);
 
     // Find or create user
     let user = existingUser;

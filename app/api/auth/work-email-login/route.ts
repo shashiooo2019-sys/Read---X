@@ -100,25 +100,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Device locking & Session creation
+    // Session creation
     const userAgent = req.headers.get('user-agent') || 'unknown-device';
     const clientIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
-    const deviceKey = `${clientIp}_${userAgent.substring(0, 50)}`;
-
-    const lockedEmail = serverAuthStore.getDeviceLock(deviceKey);
-    if (lockedEmail && lockedEmail !== cleanEmail) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'DEVICE_LOCKED',
-          message: `This device is already associated with another account (${lockedEmail}).`,
-          lockedEmail,
-        },
-        { status: 403 }
-      );
-    }
-
-    serverAuthStore.setDeviceLock(deviceKey, cleanEmail);
 
     const sessionId = serverAuthStore.createSession(user.id, cleanEmail, clientIp, userAgent);
 

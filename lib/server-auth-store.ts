@@ -54,8 +54,7 @@ export interface ServerAuditLog {
     | 'user_reactivated'
     | 'user_approved'
     | 'user_created'
-    | 'session_invalidated'
-    | 'device_associated';
+    | 'session_invalidated';
   userId?: string;
   performedBy: string;
   targetEmail?: string;
@@ -80,7 +79,6 @@ interface GlobalStoreState {
   users: User[];
   sessions: Map<string, ServerSession>; // sessionId -> Session
   tokens: Map<string, ServerMagicToken>; // tokenHash -> ServerMagicToken
-  deviceLocks: Map<string, string>; // deviceId -> userEmail
   approvedPrivateUsers: ApprovedPrivateUser[];
   auditLogs: ServerAuditLog[];
   sentEmails: SentEmailRecord[];
@@ -214,7 +212,6 @@ function initStore(): GlobalStoreState {
     users,
     sessions: new Map(),
     tokens: new Map(),
-    deviceLocks: new Map(),
     approvedPrivateUsers: defaultApprovedPrivateUsers,
     auditLogs,
     sentEmails: [],
@@ -455,29 +452,6 @@ export const serverAuthStore = {
         store.sessions.delete(sId);
       }
     }
-  },
-
-  // Device Locks (Requirement 3 & 4: Lock the user's identity & Prevent account switching)
-  getDeviceLock(deviceId: string): string | undefined {
-    return store.deviceLocks.get(deviceId);
-  },
-
-  setDeviceLock(deviceId: string, email: string): void {
-    store.deviceLocks.set(deviceId, email.trim().toLowerCase());
-  },
-
-  updateDeviceLockEmail(oldEmail: string, newEmail: string): void {
-    const oldClean = oldEmail.trim().toLowerCase();
-    const newClean = newEmail.trim().toLowerCase();
-    for (const [devId, email] of store.deviceLocks.entries()) {
-      if (email === oldClean) {
-        store.deviceLocks.set(devId, newClean);
-      }
-    }
-  },
-
-  clearDeviceLock(deviceId: string): void {
-    store.deviceLocks.delete(deviceId);
   },
 
   // Rate Limiting (Requirement 5: Rate limiting against repeated requests)

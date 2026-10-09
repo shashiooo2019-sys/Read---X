@@ -26,7 +26,6 @@ interface ChangeEmailModalProps {
 
 export function ChangeEmailModal({ user, onSuccess, onClose }: ChangeEmailModalProps) {
   const [newEmail, setNewEmail] = useState('');
-  const [releaseDeviceLock, setReleaseDeviceLock] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -53,7 +52,6 @@ export function ChangeEmailModal({ user, onSuccess, onClose }: ChangeEmailModalP
           action: 'change_email',
           userId: user.id,
           newEmail: newEmail.trim().toLowerCase(),
-          updateDeviceLock: releaseDeviceLock,
         }),
       });
 
@@ -123,18 +121,6 @@ export function ChangeEmailModal({ user, onSuccess, onClose }: ChangeEmailModalP
               autoFocus
             />
           </div>
-
-          <label className="flex items-start gap-2 cursor-pointer select-none pt-1">
-            <input
-              type="checkbox"
-              checked={releaseDeviceLock}
-              onChange={e => setReleaseDeviceLock(e.target.checked)}
-              className="mt-0.5 w-4 h-4 text-[#0078D4] rounded border-slate-300"
-            />
-            <span className="text-slate-600">
-              Update device lock to new address so the user can sign in on their current device.
-            </span>
-          </label>
 
           {errorMessage && (
             <div className="p-2.5 bg-red-50 border border-red-200 rounded text-red-700">

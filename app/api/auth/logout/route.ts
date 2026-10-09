@@ -15,23 +15,20 @@ export async function POST(req: NextRequest) {
           userId: session.userId,
           targetEmail: session.email,
           performedBy: session.email,
-          details: 'User logged out. Session invalidated. Device remains permanently associated.',
+          details: 'User logged out. Session invalidated.',
         });
         serverAuthStore.deleteSession(sessionId);
       }
     }
 
-    const deviceId = req.cookies.get('read_and_sign_device_id')?.value || 'dev-default';
-    const deviceLockedEmail = serverAuthStore.getDeviceLock(deviceId);
-
     const response = NextResponse.json({
       success: true,
       message: 'Logged out successfully',
-      deviceLockedEmail: deviceLockedEmail || null,
     });
 
-    // Clear session cookie, but KEEP device ID cookie
+    // Clear session and device cookies
     response.cookies.delete('read_and_sign_session');
+    response.cookies.delete('read_and_sign_device_id');
 
     return response;
   } catch (error) {

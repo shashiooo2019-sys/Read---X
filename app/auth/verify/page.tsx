@@ -88,9 +88,9 @@ function VerifyMagicLinkContent() {
                 <div className="w-14 h-14 border-3 border-[#0078D4]/20 border-t-[#0078D4] rounded-full animate-spin"></div>
                 <Lock className="w-5 h-5 text-[#0078D4] absolute" />
               </div>
-              <h2 className="text-lg font-bold text-slate-900">Verifying Magic Link...</h2>
+              <h2 className="text-lg font-bold text-slate-900">Verifying Sign-In Link...</h2>
               <p className="text-xs text-slate-500 max-w-xs mx-auto">
-                Cryptographically validating your one-time sign-in token and locking this device to your verified account.
+                Cryptographically validating your one-time sign-in token and establishing your authenticated session.
               </p>
             </div>
           )}
@@ -113,7 +113,7 @@ function VerifyMagicLinkContent() {
 
               <div className="p-3 bg-blue-50 border border-blue-100 rounded text-xs text-[#0078D4] flex items-center justify-center gap-2">
                 <ShieldCheck className="w-4 h-4 shrink-0" />
-                <span>Account permanently bound to this device session.</span>
+                <span>Authenticated via secure server session. Zero browser persistence.</span>
               </div>
 
               <p className="text-xs text-slate-400 animate-pulse">
@@ -134,11 +134,9 @@ function VerifyMagicLinkContent() {
                   <div className="font-semibold mb-0.5">
                     {errorCode === 'TOKEN_ALREADY_USED' && 'Link Already Used'}
                     {errorCode === 'TOKEN_EXPIRED' && 'Link Expired'}
-                    {errorCode === 'DEVICE_LOCKED' && 'Device Locked to Another Account'}
                     {errorCode === 'TOKEN_MISSING' && 'Missing Verification Token'}
                     {errorCode !== 'TOKEN_ALREADY_USED' &&
                       errorCode !== 'TOKEN_EXPIRED' &&
-                      errorCode !== 'DEVICE_LOCKED' &&
                       errorCode !== 'TOKEN_MISSING' &&
                       'Authentication Failed'}
                   </div>

@@ -263,6 +263,10 @@ export async function saveTopicToFirestore(topic: Topic, assignedStaff?: User[])
     if (topic.attachmentName) payload.attachmentName = topic.attachmentName;
     if (topic.publishedDate) payload.publishedDate = topic.publishedDate;
     if (topic.version) payload.version = topic.version;
+    if (typeof topic.isClosed === 'boolean') payload.isClosed = topic.isClosed;
+    if (topic.closedAt) payload.closedAt = topic.closedAt;
+    if (topic.closedBy) payload.closedBy = topic.closedBy;
+    if (topic.closedReason) payload.closedReason = topic.closedReason;
 
     await setDoc(docRef, payload, { merge: true });
 
@@ -294,6 +298,15 @@ export async function saveTopicAssignmentsToFirestore(
         const assignmentId = `${topic.id}_${staff.id}`;
         const assignmentRef = doc(db, 'topic_assignments', assignmentId);
 
+        const qualificationStr =
+          staff.isAls && staff.isLead
+            ? 'ALS & Lead'
+            : staff.isAls
+            ? 'ALS'
+            : staff.isLead
+            ? 'Lead'
+            : 'Standard';
+
         const assignmentData: TopicAssignment = {
           id: assignmentId,
           topicId: topic.id,
@@ -308,6 +321,9 @@ export async function saveTopicAssignmentsToFirestore(
           assignedAt: topic.createdAt || new Date().toISOString(),
           dueDate: topic.dueDate,
           status: 'assigned',
+          isAls: Boolean(staff.isAls),
+          isLead: Boolean(staff.isLead),
+          staffQualification: qualificationStr,
         };
 
         batch.set(assignmentRef, assignmentData, { merge: true });
@@ -319,6 +335,80 @@ export async function saveTopicAssignmentsToFirestore(
   } catch (error) {
     console.error('Failed to save topic assignments to Firebase:', error);
     return false;
+  }
+}
+
+export async function closeTopicForAcknowledgementInFirestore(
+  topicId: string,
+  adminEmail: string,
+  unconfirmedStaff: User[] = []
+): Promise<{ success: boolean; closedCount: number }> {
+  try {
+    const topicRef = doc(db, 'topics', topicId);
+    const nowIso = new Date().toISOString();
+    await setDoc(
+      topicRef,
+      {
+        isClosed: true,
+        closedAt: nowIso,
+        closedBy: adminEmail,
+        closedReason: 'Closed for acknowledgement by administrator (Participation verified)',
+      },
+      { merge: true }
+    );
+
+    let closedCount = 0;
+    if (unconfirmedStaff.length > 0) {
+      const chunkSize = 250;
+      for (let i = 0; i < unconfirmedStaff.length; i += chunkSize) {
+        const chunk = unconfirmedStaff.slice(i, i + chunkSize);
+        const batch = writeBatch(db);
+
+        for (const staff of chunk) {
+          const verifId = `conf-${topicId}-${staff.id}`;
+          const verifRef = doc(db, 'compliance_verifications', verifId);
+          batch.set(
+            verifRef,
+            {
+              id: verifId,
+              topicId,
+              userId: staff.id,
+              userName: staff.name,
+              userEmail: staff.email,
+              confirmedAt: nowIso,
+              status: 'confirmed',
+              signatureText: 'Participation Verified by Admin (Closed Session)',
+              adminReviewNote: 'Participation verified & confirmed upon admin closure',
+              reviewedBy: adminEmail,
+              reviewedAt: nowIso,
+            },
+            { merge: true }
+          );
+
+          const assignId = `${topicId}_${staff.id}`;
+          const assignRef = doc(db, 'topic_assignments', assignId);
+          batch.set(
+            assignRef,
+            {
+              id: assignId,
+              topicId,
+              userId: staff.id,
+              status: 'confirmed',
+              confirmedAt: nowIso,
+            },
+            { merge: true }
+          );
+          closedCount++;
+        }
+
+        await batch.commit();
+      }
+    }
+
+    return { success: true, closedCount };
+  } catch (error) {
+    console.error('Failed to close topic for acknowledgement in Firestore:', error);
+    return { success: false, closedCount: 0 };
   }
 }
 
@@ -499,6 +589,17 @@ export async function fetchUsersFromFirestore(): Promise<User[]> {
   } catch (error) {
     console.warn('Could not fetch users from Firebase:', error);
     return [];
+  }
+}
+
+export async function deleteUserFromFirestore(userId: string): Promise<boolean> {
+  try {
+    const docRef = doc(db, 'users', userId);
+    await deleteDoc(docRef);
+    return true;
+  } catch (error) {
+    console.error('Failed to delete user from Firebase:', error);
+    return false;
   }
 }
 

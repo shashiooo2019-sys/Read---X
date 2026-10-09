@@ -7,42 +7,43 @@ export async function GET(req: NextRequest) {
     const tokenFromHeader = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
     const sessionId = req.cookies.get('read_and_sign_session')?.value || tokenFromHeader;
 
-    const deviceId = req.cookies.get('read_and_sign_device_id')?.value || 'dev-default';
-    const deviceLockedEmail = serverAuthStore.getDeviceLock(deviceId);
-
     if (!sessionId) {
-      return NextResponse.json({
+      const res = NextResponse.json({
         authenticated: false,
         user: null,
-        deviceLockedEmail: deviceLockedEmail || null,
       });
+      res.cookies.delete('read_and_sign_device_id');
+      return res;
     }
 
     const session = serverAuthStore.getSession(sessionId);
     if (!session) {
-      return NextResponse.json({
+      const res = NextResponse.json({
         authenticated: false,
         user: null,
-        deviceLockedEmail: deviceLockedEmail || null,
       });
+      res.cookies.delete('read_and_sign_device_id');
+      return res;
     }
 
     const user = serverAuthStore.findUserById(session.userId);
     if (!user || user.accountStatus === 'disabled') {
       serverAuthStore.deleteSession(sessionId);
-      return NextResponse.json({
+      const res = NextResponse.json({
         authenticated: false,
         user: null,
         error: user ? 'ACCOUNT_DISABLED' : 'USER_NOT_FOUND',
-        deviceLockedEmail: deviceLockedEmail || null,
       });
+      res.cookies.delete('read_and_sign_device_id');
+      return res;
     }
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       authenticated: true,
       user,
-      deviceLockedEmail: deviceLockedEmail || user.email,
     });
+    res.cookies.delete('read_and_sign_device_id');
+    return res;
   } catch (error) {
     console.error('Session check error:', error);
     return NextResponse.json(

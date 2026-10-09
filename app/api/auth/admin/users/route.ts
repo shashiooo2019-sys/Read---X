@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
 
     // 1. CHANGE REGISTERED EMAIL (Requirement 9 & 11)
     if (action === 'change_email') {
-      const { userId, newEmail, updateDeviceLock } = body;
+      const { userId, newEmail } = body;
       if (!userId || !newEmail || !newEmail.includes('@')) {
         return NextResponse.json(
           { error: 'BAD_REQUEST', message: 'User ID and valid new email required.' },
@@ -86,12 +86,7 @@ export async function POST(req: NextRequest) {
       // 2. Invalidate existing magic links
       serverAuthStore.invalidateAllTokensForEmail(oldEmail);
 
-      // 3. Update device locks associated with old email
-      if (updateDeviceLock !== false) {
-        serverAuthStore.updateDeviceLockEmail(oldEmail, cleanNewEmail);
-      }
-
-      // 4. Update the user's permanent registered email
+      // 3. Update the user's permanent registered email
       const newDomain = cleanNewEmail.split('@')[1];
       const updatedUser = serverAuthStore.updateUser(userId, {
         email: cleanNewEmail,
