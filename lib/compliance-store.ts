@@ -15,6 +15,19 @@ const STORAGE_KEYS = {
 // Check if running in browser
 const isBrowser = typeof window !== 'undefined';
 
+export function isUserAdmin(user: Partial<User> | null | undefined): boolean {
+  if (!user) return false;
+  const uNumber = user.uNumber?.trim().toUpperCase();
+  const email = user.email?.trim().toLowerCase();
+  const id = user.id?.trim().toLowerCase();
+  return (
+    uNumber === 'ADMIN' ||
+    email === 'admin@compliance.system' ||
+    email === 'admin' ||
+    id === 'u-admin'
+  );
+}
+
 export function getStoredUsers(): User[] {
   if (!isBrowser) return INITIAL_STAFF_ROSTER;
   try {
@@ -23,7 +36,45 @@ export function getStoredUsers(): User[] {
       localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(INITIAL_STAFF_ROSTER));
       return INITIAL_STAFF_ROSTER;
     }
-    return JSON.parse(raw);
+    const parsed: User[] = JSON.parse(raw);
+    let modified = false;
+
+    // Ensure user admin exists
+    const hasAdmin = parsed.some(isUserAdmin);
+    if (!hasAdmin) {
+      parsed.unshift({
+        id: 'u-admin',
+        uNumber: 'ADMIN',
+        name: 'Administrator',
+        email: 'admin@compliance.system',
+        isAls: true,
+        isLead: true,
+        isAdmin: true,
+        department: 'System Administration',
+        title: 'System Administrator'
+      });
+      modified = true;
+    }
+
+    // Strip admin authority from all users except user admin
+    parsed.forEach(u => {
+      if (isUserAdmin(u)) {
+        if (!u.isAdmin) {
+          u.isAdmin = true;
+          modified = true;
+        }
+      } else {
+        if (u.isAdmin) {
+          u.isAdmin = false;
+          modified = true;
+        }
+      }
+    });
+
+    if (modified) {
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(parsed));
+    }
+    return parsed;
   } catch (e) {
     console.error('Failed to load users from storage', e);
     return INITIAL_STAFF_ROSTER;
@@ -32,7 +83,12 @@ export function getStoredUsers(): User[] {
 
 export function saveUsers(users: User[]) {
   if (!isBrowser) return;
-  localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+  // Ensure admin authority is stripped from all users except user admin
+  const sanitizedUsers = users.map(u => ({
+    ...u,
+    isAdmin: isUserAdmin(u)
+  }));
+  localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(sanitizedUsers));
   window.dispatchEvent(new Event('read_and_sign_data_changed'));
 }
 
@@ -113,14 +169,34 @@ export function setM365Session(session: { email: string; loggedInAt: string; tok
   }
 }
 
+export const APP_REFERENCE_DATE = '2026-10-08';
+
+// Check if a topic has a future published date (not yet active)
+export function isTopicFuturePlanned(topic: Topic, todayDate: string = APP_REFERENCE_DATE): boolean {
+  const pubDate = topic.publishedDate || topic.effectiveDate;
+  if (!pubDate) return false;
+  return pubDate > todayDate;
+}
+
 // Target group eligibility logic:
 // - ALL: Everyone
-// - ALS: Only ALS
-// - Lead: Only Lead
+// - ALS: Only ALS (plus any individually selected staff)
+// - Lead: Only Lead (plus any individually selected staff)
+// - ALS_AND_LEAD: Personnel marked ALS or Lead (plus any individually selected staff)
+// - CUSTOM: Only specifically selected staff in assignedUserIds
 export function isUserEligibleForTopic(user: User, topic: Topic): boolean {
+  // If targetGroup is CUSTOM, ONLY specifically assigned staff are eligible
+  if (topic.targetGroup === 'CUSTOM') {
+    return Boolean(topic.assignedUserIds && topic.assignedUserIds.includes(user.id));
+  }
+  // If specific individual staff members are explicitly assigned in addition to group:
+  if (topic.assignedUserIds && topic.assignedUserIds.includes(user.id)) {
+    return true;
+  }
   if (topic.targetGroup === 'ALL') return true;
   if (topic.targetGroup === 'ALS') return user.isAls === true;
   if (topic.targetGroup === 'Lead') return user.isLead === true;
+  if (topic.targetGroup === 'ALS_AND_LEAD') return user.isAls === true || user.isLead === true;
   return false;
 }
 

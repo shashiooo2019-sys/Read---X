@@ -131,10 +131,29 @@ All Leads must confirm active participation in the station role-play drills.`,
     attachmentUrl: 'https://security.dlh.de/bcas-audit-2026.pdf',
     attachmentName: 'Airside-Security-Audit-Directive.pdf',
     effectiveDate: '2026-10-02',
+    publishedDate: '2026-10-02',
     dueDate: '2026-10-18',
     createdAt: '2026-10-02T16:20:00Z',
     createdBy: 'sweta.khaneja@dlh.de',
     version: 'v2.0'
+  },
+  {
+    id: 'top-108',
+    title: 'Winter Schedule 2026/27 Airside Ramp Operations & Gate Allocation Directive',
+    type: 'Document Read and Sign',
+    targetGroup: 'ALS_AND_LEAD',
+    content: `Advance notification for upcoming Winter flight schedule rollout:
+1. Effective with winter timetable transition, enhanced towing and gate turnaround buffers will be enforced across LH/LX/OS flights.
+2. ALS Specialists and Station Leads must review updated gate parking plan and auxiliary power unit (APU) limits.
+3. This directive is scheduled for official publication on October 25, 2026. Staff acknowledgment will open on the published date.`,
+    attachmentUrl: 'https://operations.dlh.de/winter-2026-schedule.pdf',
+    attachmentName: 'Winter-Schedule-2026-Gate-Plan.pdf',
+    publishedDate: '2026-10-25',
+    effectiveDate: '2026-10-25',
+    dueDate: '2026-11-09',
+    createdAt: '2026-10-06T12:00:00Z',
+    createdBy: 'shashi.srivastava@dlh.de',
+    version: 'v1.0'
   }
 ];
 

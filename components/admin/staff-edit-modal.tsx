@@ -101,7 +101,12 @@ export function StaffEditModal({
       email: trimmedEmail,
       isAls,
       isLead,
-      isAdmin: false,
+      isAdmin: Boolean(
+        initialStaff &&
+        (initialStaff.uNumber?.toUpperCase() === 'ADMIN' ||
+          initialStaff.id === 'u-admin' ||
+          initialStaff.email?.toLowerCase() === 'admin@compliance.system')
+      ),
       department: department.trim() || 'Station Operations',
       title: title.trim() || (isLead ? 'Station Lead' : isAls ? 'ALS Specialist' : 'Ground Team Member'),
     };

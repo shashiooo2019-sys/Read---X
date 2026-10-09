@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { User, Topic, TopicConfirmation } from '@/lib/types';
 import { exportStaffRosterCompliance } from '@/lib/export-utils';
 import { StaffEditModal } from './staff-edit-modal';
@@ -31,6 +31,10 @@ import {
   History,
   Lock,
   RefreshCw,
+  ChevronDown,
+  ChevronUp,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
 interface StaffRosterViewProps {
@@ -60,6 +64,26 @@ export function StaffRosterView({
   const [leadFilter, setLeadFilter] = useState<'all' | 'yes' | 'no'>('all');
   const [adminFilter, setAdminFilter] = useState<'all' | 'admin' | 'standard'>('all');
   const [domainFilter, setDomainFilter] = useState<'all' | 'dlh.de' | 'lhgroup.de' | 'swiss.com'>('all');
+
+  // Collapsible section states - collapsed by default
+  const [showHeaderActions, setShowHeaderActions] = useState(false);
+  const [showOverviewMetrics, setShowOverviewMetrics] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+
+  // Table horizontal scroll container ref
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+
+  const handleScrollLeft = () => {
+    if (tableContainerRef.current) {
+      tableContainerRef.current.scrollBy({ left: -200, behavior: 'smooth' });
+    }
+  };
+
+  const handleScrollRight = () => {
+    if (tableContainerRef.current) {
+      tableContainerRef.current.scrollBy({ left: 200, behavior: 'smooth' });
+    }
+  };
 
   // Modal states
   const [showAddModal, setShowAddModal] = useState(false);
@@ -240,317 +264,454 @@ export function StaffRosterView({
 
         <div className="flex flex-wrap items-center gap-2.5">
           <button
-            onClick={() => setShowApprovedModal(true)}
-            className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 rounded-lg transition border border-slate-200 flex items-center gap-1.5 shadow-xs"
-            title="Manage and approve private email addresses (e.g. Gmail, Outlook) for external users"
+            type="button"
+            onClick={() => setShowHeaderActions(!showHeaderActions)}
+            className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 rounded-lg transition border border-slate-200 flex items-center gap-1.5 shadow-xs"
+            title="Toggle roster actions and tools"
           >
-            <Shield className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Approved Private Emails</span>
+            <UserCog className="w-3.5 h-3.5 text-slate-600" />
+            <span>Roster Actions & Tools (5)</span>
+            {showHeaderActions ? (
+              <ChevronUp className="w-3.5 h-3.5 text-slate-500" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+            )}
           </button>
 
-          <button
-            onClick={() => setShowAuditModal(true)}
-            className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 rounded-lg transition border border-slate-200 flex items-center gap-1.5 shadow-xs"
-            title="View immutable authentication, email changes, and session audit logs"
-          >
-            <History className="w-3.5 h-3.5 text-amber-600" />
-            <span>Audit Trail</span>
-          </button>
+          {showHeaderActions && (
+            <>
+              <button
+                onClick={() => setShowApprovedModal(true)}
+                className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 rounded-lg transition border border-slate-200 flex items-center gap-1.5 shadow-xs"
+                title="Manage and approve private email addresses (e.g. Gmail, Outlook) for external users"
+              >
+                <Shield className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Approved Private Emails</span>
+              </button>
 
-          <button
-            onClick={() => setShowImportModal(true)}
-            className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition border border-slate-200 flex items-center gap-1.5 shadow-xs"
-            title="Import staff names through XLSX, CSV, or PDF with changes-only and new names support"
-          >
-            <Upload className="w-3.5 h-3.5 text-[#0078D4]" />
-            <span>Import Staff (XLSX / CSV / PDF)</span>
-          </button>
+              <button
+                onClick={() => setShowAuditModal(true)}
+                className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 rounded-lg transition border border-slate-200 flex items-center gap-1.5 shadow-xs"
+                title="View immutable authentication, email changes, and session audit logs"
+              >
+                <History className="w-3.5 h-3.5 text-amber-600" />
+                <span>Audit Trail</span>
+              </button>
 
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="px-3.5 py-2 text-xs font-semibold text-white bg-[#0078D4] hover:bg-[#106EBE] rounded-lg transition shadow-xs flex items-center gap-1.5"
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ Add Staff</span>
-          </button>
+              <button
+                onClick={() => setShowImportModal(true)}
+                className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition border border-slate-200 flex items-center gap-1.5 shadow-xs"
+                title="Import staff names through XLSX, CSV, or PDF with changes-only and new names support"
+              >
+                <Upload className="w-3.5 h-3.5 text-[#0078D4]" />
+                <span>Import Staff (XLSX / CSV / PDF)</span>
+              </button>
 
-          <button
-            onClick={() => exportStaffRosterCompliance(users, topics, confirmations)}
-            className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 rounded-lg transition border border-slate-200 flex items-center gap-1.5 shadow-xs"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Export CSV</span>
-          </button>
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="px-3.5 py-2 text-xs font-semibold text-white bg-[#0078D4] hover:bg-[#106EBE] rounded-lg transition shadow-xs flex items-center gap-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                <span>+ Add Staff</span>
+              </button>
+
+              <button
+                onClick={() => exportStaffRosterCompliance(users, topics, confirmations)}
+                className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 rounded-lg transition border border-slate-200 flex items-center gap-1.5 shadow-xs"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Export CSV</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
       {/* Clickable Overview Metric Boxes */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {/* Box 1: Total Personnel */}
-        <button
-          type="button"
-          onClick={() => {
-            setAlsFilter('all');
-            setLeadFilter('all');
-            setAdminFilter('all');
-            setDomainFilter('all');
-          }}
-          className={`text-left p-4 rounded-xl shadow-xs transition cursor-pointer border ${
-            alsFilter === 'all' && leadFilter === 'all' && adminFilter === 'all' && domainFilter === 'all'
-              ? 'bg-blue-50/50 border-[#0078D4] ring-2 ring-[#0078D4]/20'
-              : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-sm'
-          }`}
-          title="Click to view all personnel"
-        >
-          <div className="flex items-center justify-between text-xs font-medium text-slate-500">
-            <span>Total Personnel</span>
-            {alsFilter === 'all' && leadFilter === 'all' && adminFilter === 'all' && domainFilter === 'all' && (
-              <span className="text-[10px] bg-[#0078D4] text-white px-1.5 py-0.2 rounded font-semibold">All</span>
-            )}
-          </div>
-          <div className="text-2xl font-bold text-slate-900 mt-1 tabular-nums">{users.length}</div>
-          <div className="text-[11px] text-[#0078D4] mt-1 font-medium flex items-center justify-between">
-            <span>Show all staff</span>
-            <span className="text-slate-400">↳</span>
-          </div>
-        </button>
-
-        {/* Box 2: ALS Qualified */}
-        <button
-          type="button"
-          onClick={() => setAlsFilter(alsFilter === 'yes' ? 'all' : 'yes')}
-          className={`text-left p-4 rounded-xl shadow-xs transition cursor-pointer border ${
-            alsFilter === 'yes'
-              ? 'bg-emerald-50/70 border-emerald-500 ring-2 ring-emerald-500/20'
-              : 'bg-white border-slate-200 hover:border-emerald-300 hover:shadow-sm'
-          }`}
-          title="Click to filter personnel with ALS qualification"
-        >
-          <div className="flex items-center justify-between text-xs font-medium text-emerald-700">
-            <span>ALS Qualified</span>
-            {alsFilter === 'yes' && (
-              <span className="text-[10px] bg-emerald-600 text-white px-1.5 py-0.2 rounded font-semibold">Filtered</span>
-            )}
-          </div>
-          <div className="text-2xl font-bold text-emerald-800 mt-1 tabular-nums">
-            {users.filter(u => u.isAls).length}
-          </div>
-          <div className="text-[11px] text-emerald-700 mt-1 font-medium flex items-center justify-between">
-            <span>{alsFilter === 'yes' ? 'Showing ALS only' : 'Filter ALS staff'}</span>
-            <span>↳</span>
-          </div>
-        </button>
-
-        {/* Box 3: Station Leads */}
-        <button
-          type="button"
-          onClick={() => setLeadFilter(leadFilter === 'yes' ? 'all' : 'yes')}
-          className={`text-left p-4 rounded-xl shadow-xs transition cursor-pointer border ${
-            leadFilter === 'yes'
-              ? 'bg-blue-50/70 border-blue-500 ring-2 ring-blue-500/20'
-              : 'bg-white border-slate-200 hover:border-blue-300 hover:shadow-sm'
-          }`}
-          title="Click to filter personnel with Station / Duty Lead role"
-        >
-          <div className="flex items-center justify-between text-xs font-medium text-blue-700">
-            <span>Lead Qualified</span>
-            {leadFilter === 'yes' && (
-              <span className="text-[10px] bg-[#0078D4] text-white px-1.5 py-0.2 rounded font-semibold">Filtered</span>
-            )}
-          </div>
-          <div className="text-2xl font-bold text-blue-900 mt-1 tabular-nums">
-            {users.filter(u => u.isLead).length}
-          </div>
-          <div className="text-[11px] text-blue-700 mt-1 font-medium flex items-center justify-between">
-            <span>{leadFilter === 'yes' ? 'Showing Leads only' : 'Filter Lead staff'}</span>
-            <span>↳</span>
-          </div>
-        </button>
-
-        {/* Box 4: Administrators */}
-        <button
-          type="button"
-          onClick={() => setAdminFilter(adminFilter === 'admin' ? 'all' : 'admin')}
-          className={`text-left p-4 rounded-xl shadow-xs transition cursor-pointer border ${
-            adminFilter === 'admin'
-              ? 'bg-purple-50/70 border-purple-500 ring-2 ring-purple-500/20'
-              : 'bg-white border-slate-200 hover:border-purple-300 hover:shadow-sm'
-          }`}
-          title="Click to filter Administrator accounts"
-        >
-          <div className="flex items-center justify-between text-xs font-medium text-purple-700">
-            <div className="flex items-center gap-1.5">
-              <Shield className="w-3.5 h-3.5 text-purple-600" />
-              <span>Administrators</span>
+      <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs transition">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+              <UserCheck className="w-4 h-4 text-[#0078D4]" />
+              <span>Personnel & Roles Overview</span>
             </div>
-            {adminFilter === 'admin' && (
-              <span className="text-[10px] bg-purple-600 text-white px-1.5 py-0.2 rounded font-semibold">Filtered</span>
+            <span className="text-[11px] text-slate-400">|</span>
+            <span className="text-xs text-slate-600">
+              Total: <strong className="text-slate-900">{users.length}</strong>
+            </span>
+            <span className="text-xs text-emerald-700">
+              ALS: <strong className="text-emerald-800">{users.filter(u => u.isAls).length}</strong>
+            </span>
+            <span className="text-xs text-blue-700">
+              Leads: <strong className="text-blue-800">{users.filter(u => u.isLead).length}</strong>
+            </span>
+            <span className="text-xs text-purple-700">
+              Admins: <strong className="text-purple-800">{users.filter(u => u.isAdmin).length}</strong>
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowOverviewMetrics(!showOverviewMetrics)}
+            className="self-start sm:self-auto px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 rounded-lg transition border border-slate-200 flex items-center gap-1.5 shrink-0"
+          >
+            <span>{showOverviewMetrics ? 'Collapse Metrics' : 'Expand Metrics (4)'}</span>
+            {showOverviewMetrics ? (
+              <ChevronUp className="w-3.5 h-3.5 text-slate-500" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
             )}
+          </button>
+        </div>
+
+        {showOverviewMetrics && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4 pt-4 border-t border-slate-100 animate-in fade-in duration-200">
+            {/* Box 1: Total Personnel */}
+            <button
+              type="button"
+              onClick={() => {
+                setAlsFilter('all');
+                setLeadFilter('all');
+                setAdminFilter('all');
+                setDomainFilter('all');
+              }}
+              className={`text-left p-4 rounded-xl shadow-xs transition cursor-pointer border ${
+                alsFilter === 'all' && leadFilter === 'all' && adminFilter === 'all' && domainFilter === 'all'
+                  ? 'bg-blue-50/50 border-[#0078D4] ring-2 ring-[#0078D4]/20'
+                  : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-sm'
+              }`}
+              title="Click to view all personnel"
+            >
+              <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+                <span>Total Personnel</span>
+                {alsFilter === 'all' && leadFilter === 'all' && adminFilter === 'all' && domainFilter === 'all' && (
+                  <span className="text-[10px] bg-[#0078D4] text-white px-1.5 py-0.2 rounded font-semibold">All</span>
+                )}
+              </div>
+              <div className="text-2xl font-bold text-slate-900 mt-1 tabular-nums">{users.length}</div>
+              <div className="text-[11px] text-[#0078D4] mt-1 font-medium flex items-center justify-between">
+                <span>Show all staff</span>
+                <span className="text-slate-400">↳</span>
+              </div>
+            </button>
+
+            {/* Box 2: ALS Qualified */}
+            <button
+              type="button"
+              onClick={() => setAlsFilter(alsFilter === 'yes' ? 'all' : 'yes')}
+              className={`text-left p-4 rounded-xl shadow-xs transition cursor-pointer border ${
+                alsFilter === 'yes'
+                  ? 'bg-emerald-50/70 border-emerald-500 ring-2 ring-emerald-500/20'
+                  : 'bg-white border-slate-200 hover:border-emerald-300 hover:shadow-sm'
+              }`}
+              title="Click to filter personnel with ALS qualification"
+            >
+              <div className="flex items-center justify-between text-xs font-medium text-emerald-700">
+                <span>ALS Qualified</span>
+                {alsFilter === 'yes' && (
+                  <span className="text-[10px] bg-emerald-600 text-white px-1.5 py-0.2 rounded font-semibold">Filtered</span>
+                )}
+              </div>
+              <div className="text-2xl font-bold text-emerald-800 mt-1 tabular-nums">
+                {users.filter(u => u.isAls).length}
+              </div>
+              <div className="text-[11px] text-emerald-700 mt-1 font-medium flex items-center justify-between">
+                <span>{alsFilter === 'yes' ? 'Showing ALS only' : 'Filter ALS staff'}</span>
+                <span>↳</span>
+              </div>
+            </button>
+
+            {/* Box 3: Station Leads */}
+            <button
+              type="button"
+              onClick={() => setLeadFilter(leadFilter === 'yes' ? 'all' : 'yes')}
+              className={`text-left p-4 rounded-xl shadow-xs transition cursor-pointer border ${
+                leadFilter === 'yes'
+                  ? 'bg-blue-50/70 border-blue-500 ring-2 ring-blue-500/20'
+                  : 'bg-white border-slate-200 hover:border-blue-300 hover:shadow-sm'
+              }`}
+              title="Click to filter personnel with Station / Duty Lead role"
+            >
+              <div className="flex items-center justify-between text-xs font-medium text-blue-700">
+                <span>Lead Qualified</span>
+                {leadFilter === 'yes' && (
+                  <span className="text-[10px] bg-[#0078D4] text-white px-1.5 py-0.2 rounded font-semibold">Filtered</span>
+                )}
+              </div>
+              <div className="text-2xl font-bold text-blue-900 mt-1 tabular-nums">
+                {users.filter(u => u.isLead).length}
+              </div>
+              <div className="text-[11px] text-blue-700 mt-1 font-medium flex items-center justify-between">
+                <span>{leadFilter === 'yes' ? 'Showing Leads only' : 'Filter Lead staff'}</span>
+                <span>↳</span>
+              </div>
+            </button>
+
+            {/* Box 4: Administrators */}
+            <button
+              type="button"
+              onClick={() => setAdminFilter(adminFilter === 'admin' ? 'all' : 'admin')}
+              className={`text-left p-4 rounded-xl shadow-xs transition cursor-pointer border ${
+                adminFilter === 'admin'
+                  ? 'bg-purple-50/70 border-purple-500 ring-2 ring-purple-500/20'
+                  : 'bg-white border-slate-200 hover:border-purple-300 hover:shadow-sm'
+              }`}
+              title="Click to filter Administrator accounts"
+            >
+              <div className="flex items-center justify-between text-xs font-medium text-purple-700">
+                <div className="flex items-center gap-1.5">
+                  <Shield className="w-3.5 h-3.5 text-purple-600" />
+                  <span>Administrators</span>
+                </div>
+                {adminFilter === 'admin' && (
+                  <span className="text-[10px] bg-purple-600 text-white px-1.5 py-0.2 rounded font-semibold">Filtered</span>
+                )}
+              </div>
+              <div className="text-2xl font-bold text-purple-900 mt-1 tabular-nums">
+                {users.filter(u => u.isAdmin).length}
+              </div>
+              <div className="text-[11px] text-purple-700 mt-1 font-medium flex items-center justify-between">
+                <span>{adminFilter === 'admin' ? 'Showing Admins only' : 'Filter Admin staff'}</span>
+                <span>↳</span>
+              </div>
+            </button>
           </div>
-          <div className="text-2xl font-bold text-purple-900 mt-1 tabular-nums">
-            {users.filter(u => u.isAdmin).length}
-          </div>
-          <div className="text-[11px] text-purple-700 mt-1 font-medium flex items-center justify-between">
-            <span>{adminFilter === 'admin' ? 'Showing Admins only' : 'Filter Admin staff'}</span>
-            <span>↳</span>
-          </div>
-        </button>
+        )}
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-3 text-xs">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
-          {/* Search */}
-          <div className="md:col-span-2 relative">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-            <input
-              type="text"
-              placeholder="Search by name, email, or U-Number..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#0078D4]"
-            />
+      <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-3 text-xs transition">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5 font-bold text-slate-800">
+              <Filter className="w-4 h-4 text-[#0078D4]" />
+              <span>Roster Filters & Search</span>
+            </div>
+            <span className="text-[11px] text-slate-400">|</span>
+            <span className="text-[11px] text-slate-600">
+              Showing <strong className="text-slate-900">{filteredUsers.length}</strong> of {users.length} staff
+            </span>
+            {(searchQuery || alsFilter !== 'all' || leadFilter !== 'all' || adminFilter !== 'all' || domainFilter !== 'all') && (
+              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-[#0078D4]">
+                Active filters applied
+              </span>
+            )}
           </div>
 
-          {/* ALS Filter */}
-          <div>
-            <label className="block text-[11px] font-medium text-slate-500 mb-1">ALS Qualification</label>
-            <select
-              value={alsFilter}
-              onChange={e => setAlsFilter(e.target.value as any)}
-              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white"
+          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+            {(searchQuery || alsFilter !== 'all' || leadFilter !== 'all' || adminFilter !== 'all' || domainFilter !== 'all') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setAlsFilter('all');
+                  setLeadFilter('all');
+                  setAdminFilter('all');
+                  setDomainFilter('all');
+                }}
+                className="text-[11px] text-rose-600 hover:text-rose-800 font-medium underline"
+              >
+                Reset
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowFilters(!showFilters)}
+              className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 rounded-lg transition border border-slate-200 flex items-center gap-1.5"
             >
-              <option value="all">All Personnel</option>
-              <option value="yes">ALS Qualified (Y)</option>
-              <option value="no">Non-ALS (N)</option>
-            </select>
-          </div>
-
-          {/* Lead Filter */}
-          <div>
-            <label className="block text-[11px] font-medium text-slate-500 mb-1">Lead Station Role</label>
-            <select
-              value={leadFilter}
-              onChange={e => setLeadFilter(e.target.value as any)}
-              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white"
-            >
-              <option value="all">All Personnel</option>
-              <option value="yes">Lead Role (Y)</option>
-              <option value="no">Non-Lead (N)</option>
-            </select>
-          </div>
-
-          {/* Domain Filter */}
-          <div>
-            <label className="block text-[11px] font-medium text-slate-500 mb-1">Email Domain</label>
-            <select
-              value={domainFilter}
-              onChange={e => setDomainFilter(e.target.value as any)}
-              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white"
-            >
-              <option value="all">All Domains</option>
-              <option value="dlh.de">@dlh.de</option>
-              <option value="lhgroup.de">@lhgroup.de</option>
-              <option value="swiss.com">@swiss.com</option>
-            </select>
+              <span>{showFilters ? 'Collapse Filters' : 'Expand Filters'}</span>
+              {showFilters ? (
+                <ChevronUp className="w-3.5 h-3.5 text-slate-500" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+              )}
+            </button>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between pt-2 border-t border-slate-100 text-[11px] text-slate-500 gap-2">
-          <div>
-            Showing <strong className="text-slate-900">{filteredUsers.length}</strong> of {users.length} staff members
-          </div>
+        {showFilters && (
+          <div className="space-y-3 pt-3 border-t border-slate-100 animate-in fade-in duration-200">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
+              {/* Search */}
+              <div className="md:col-span-2 relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="Search by name, email, or U-Number..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#0078D4]"
+                />
+              </div>
 
-          {/* Quick Domain Filter Boxes */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-slate-400 mr-1">Domains:</span>
-            <button
-              type="button"
-              onClick={() => setDomainFilter('all')}
-              className={`px-2 py-0.5 rounded border transition cursor-pointer ${
-                domainFilter === 'all'
-                  ? 'bg-slate-900 text-white border-slate-900'
-                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-              }`}
-            >
-              All Domains ({users.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setDomainFilter('dlh.de')}
-              className={`px-2 py-0.5 rounded border transition cursor-pointer ${
-                domainFilter === 'dlh.de'
-                  ? 'bg-[#0078D4] text-white border-[#0078D4]'
-                  : 'bg-white text-slate-600 border-slate-200 hover:bg-blue-50'
-              }`}
-            >
-              @dlh.de ({users.filter(u => u.email.toLowerCase().includes('dlh.de')).length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setDomainFilter('lhgroup.de')}
-              className={`px-2 py-0.5 rounded border transition cursor-pointer ${
-                domainFilter === 'lhgroup.de'
-                  ? 'bg-[#0078D4] text-white border-[#0078D4]'
-                  : 'bg-white text-slate-600 border-slate-200 hover:bg-blue-50'
-              }`}
-            >
-              @lhgroup.de ({users.filter(u => u.email.toLowerCase().includes('lhgroup.de')).length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setDomainFilter('swiss.com')}
-              className={`px-2 py-0.5 rounded border transition cursor-pointer ${
-                domainFilter === 'swiss.com'
-                  ? 'bg-[#0078D4] text-white border-[#0078D4]'
-                  : 'bg-white text-slate-600 border-slate-200 hover:bg-blue-50'
-              }`}
-            >
-              @swiss.com ({users.filter(u => u.email.toLowerCase().includes('swiss.com')).length})
-            </button>
-          </div>
+              {/* ALS Filter */}
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500 mb-1">ALS Qualification</label>
+                <select
+                  value={alsFilter}
+                  onChange={e => setAlsFilter(e.target.value as any)}
+                  className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white"
+                >
+                  <option value="all">All Personnel</option>
+                  <option value="yes">ALS Qualified (Y)</option>
+                  <option value="no">Non-ALS (N)</option>
+                </select>
+              </div>
 
-          <div className="flex items-center gap-2">
-            <span>Filter Admin:</span>
-            <button
-              type="button"
-              onClick={() => setAdminFilter('all')}
-              className={`px-2 py-0.5 rounded ${adminFilter === 'all' ? 'bg-slate-800 text-white font-medium' : 'hover:bg-slate-100 text-slate-600'}`}
-            >
-              All
-            </button>
-            <button
-              type="button"
-              onClick={() => setAdminFilter('admin')}
-              className={`px-2 py-0.5 rounded ${adminFilter === 'admin' ? 'bg-purple-700 text-white font-medium' : 'hover:bg-slate-100 text-slate-600'}`}
-            >
-              Admins Only
-            </button>
-            <button
-              type="button"
-              onClick={() => setAdminFilter('standard')}
-              className={`px-2 py-0.5 rounded ${adminFilter === 'standard' ? 'bg-slate-800 text-white font-medium' : 'hover:bg-slate-100 text-slate-600'}`}
-            >
-              Standard Staff
-            </button>
+              {/* Lead Filter */}
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500 mb-1">Lead Station Role</label>
+                <select
+                  value={leadFilter}
+                  onChange={e => setLeadFilter(e.target.value as any)}
+                  className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white"
+                >
+                  <option value="all">All Personnel</option>
+                  <option value="yes">Lead Role (Y)</option>
+                  <option value="no">Non-Lead (N)</option>
+                </select>
+              </div>
+
+              {/* Domain Filter */}
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500 mb-1">Email Domain</label>
+                <select
+                  value={domainFilter}
+                  onChange={e => setDomainFilter(e.target.value as any)}
+                  className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white"
+                >
+                  <option value="all">All Domains</option>
+                  <option value="dlh.de">@dlh.de</option>
+                  <option value="lhgroup.de">@lhgroup.de</option>
+                  <option value="swiss.com">@swiss.com</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between pt-2 border-t border-slate-100 text-[11px] text-slate-500 gap-2">
+              <div>
+                Showing <strong className="text-slate-900">{filteredUsers.length}</strong> of {users.length} staff members
+              </div>
+
+              {/* Quick Domain Filter Boxes */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-slate-400 mr-1">Domains:</span>
+                <button
+                  type="button"
+                  onClick={() => setDomainFilter('all')}
+                  className={`px-2 py-0.5 rounded border transition cursor-pointer ${
+                    domainFilter === 'all'
+                      ? 'bg-slate-900 text-white border-slate-900'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  All Domains ({users.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDomainFilter('dlh.de')}
+                  className={`px-2 py-0.5 rounded border transition cursor-pointer ${
+                    domainFilter === 'dlh.de'
+                      ? 'bg-[#0078D4] text-white border-[#0078D4]'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-blue-50'
+                  }`}
+                >
+                  @dlh.de ({users.filter(u => u.email.toLowerCase().includes('dlh.de')).length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDomainFilter('lhgroup.de')}
+                  className={`px-2 py-0.5 rounded border transition cursor-pointer ${
+                    domainFilter === 'lhgroup.de'
+                      ? 'bg-[#0078D4] text-white border-[#0078D4]'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-blue-50'
+                  }`}
+                >
+                  @lhgroup.de ({users.filter(u => u.email.toLowerCase().includes('lhgroup.de')).length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDomainFilter('swiss.com')}
+                  className={`px-2 py-0.5 rounded border transition cursor-pointer ${
+                    domainFilter === 'swiss.com'
+                      ? 'bg-[#0078D4] text-white border-[#0078D4]'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-blue-50'
+                  }`}
+                >
+                  @swiss.com ({users.filter(u => u.email.toLowerCase().includes('swiss.com')).length})
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span>Filter Admin:</span>
+                <button
+                  type="button"
+                  onClick={() => setAdminFilter('all')}
+                  className={`px-2 py-0.5 rounded ${adminFilter === 'all' ? 'bg-slate-800 text-white font-medium' : 'hover:bg-slate-100 text-slate-600'}`}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdminFilter('admin')}
+                  className={`px-2 py-0.5 rounded ${adminFilter === 'admin' ? 'bg-purple-700 text-white font-medium' : 'hover:bg-slate-100 text-slate-600'}`}
+                >
+                  Admins Only
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdminFilter('standard')}
+                  className={`px-2 py-0.5 rounded ${adminFilter === 'standard' ? 'bg-slate-800 text-white font-medium' : 'hover:bg-slate-100 text-slate-600'}`}
+                >
+                  Standard Staff
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Roster Table */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
-        <div className="overflow-x-auto">
+        <div ref={tableContainerRef} className="overflow-x-auto relative scroll-smooth">
           <table className="w-full text-left text-xs border-collapse">
             <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
               <tr>
-                <th className="py-3 px-4 font-semibold">UNUMBER</th>
-                <th className="py-3 px-4 font-semibold">NAMES</th>
-                <th className="py-3 px-4 font-semibold">Email</th>
-                <th className="py-3 px-4 font-semibold text-center">ALS</th>
-                <th className="py-3 px-4 font-semibold text-center">Lead</th>
-                <th className="py-3 px-4 font-semibold text-center">Role / Admin</th>
-                <th className="py-3 px-4 font-semibold">Compliance Status</th>
-                <th className="py-3 px-4 font-semibold text-right">Actions</th>
+                {/* 1st column: NAMES (frozen horizontally, 50% less wide ~140px, chevron arrows next to header) */}
+                <th className="py-3 px-3 font-semibold sticky left-0 z-20 bg-slate-50 border-r border-slate-200/80 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)] w-36 max-w-[144px]">
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="truncate">NAMES</span>
+                    <div className="flex items-center gap-0.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={handleScrollLeft}
+                        aria-label="Scroll table left"
+                        title="Scroll left"
+                        className="p-0.5 rounded text-slate-400 hover:text-slate-800 hover:bg-slate-200/80 transition cursor-pointer"
+                      >
+                        <ChevronLeft className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleScrollRight}
+                        aria-label="Scroll table right"
+                        title="Scroll right"
+                        className="p-0.5 rounded text-slate-400 hover:text-slate-800 hover:bg-slate-200/80 transition cursor-pointer"
+                      >
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </th>
+                {/* 2nd column: UNUMBER */}
+                <th className="py-3 px-4 font-semibold whitespace-nowrap">UNUMBER</th>
+                {/* Other columns */}
+                <th className="py-3 px-4 font-semibold whitespace-nowrap">Email</th>
+                <th className="py-3 px-4 font-semibold text-center whitespace-nowrap">ALS</th>
+                <th className="py-3 px-4 font-semibold text-center whitespace-nowrap">Lead</th>
+                <th className="py-3 px-4 font-semibold text-center whitespace-nowrap">Role / Admin</th>
+                <th className="py-3 px-4 font-semibold whitespace-nowrap">Compliance Status</th>
+                <th className="py-3 px-4 font-semibold text-right whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -573,23 +734,32 @@ export function StaffRosterView({
                   return (
                     <tr
                       key={user.id}
-                      className={`hover:bg-slate-50/80 transition ${isCurrent ? 'bg-blue-50/40' : ''}`}
+                      className={`hover:bg-slate-50/80 transition group ${isCurrent ? 'bg-blue-50/40' : ''}`}
                     >
-                      <td className="py-2.5 px-4 font-mono font-medium text-slate-900">
-                        {user.uNumber}
-                      </td>
-                      <td className="py-2.5 px-4">
-                        <div className="font-semibold text-slate-900 flex items-center gap-1.5">
-                          <span>{user.name}</span>
+                      {/* 1st column: NAMES (sticky left, 50% less wide, frozen horizontally) */}
+                      <td className={`py-2 px-3 sticky left-0 z-10 border-r border-slate-200/80 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)] w-36 max-w-[144px] transition ${
+                        isCurrent ? 'bg-blue-50 group-hover:bg-blue-100/70' : 'bg-white group-hover:bg-slate-50'
+                      }`}>
+                        <div className="font-semibold text-slate-900 flex items-center gap-1 min-w-0">
+                          <span className="truncate text-xs" title={user.name}>{user.name}</span>
                           {isCurrent && (
-                            <span className="text-[10px] bg-blue-100 text-[#0078D4] px-1.5 py-0.2 rounded font-medium">
+                            <span className="text-[9px] bg-blue-100 text-[#0078D4] px-1 py-0.1 rounded font-medium shrink-0">
                               You
                             </span>
                           )}
                         </div>
-                        <div className="text-[11px] text-slate-400">{user.title || user.department || 'Station Team'}</div>
+                        <div className="text-[10px] text-slate-400 truncate" title={user.title || user.department || 'Station Team'}>
+                          {user.title || user.department || 'Station Team'}
+                        </div>
                       </td>
-                      <td className="py-2.5 px-4 font-mono text-[11px]">
+
+                      {/* 2nd column: UNUMBER */}
+                      <td className="py-2.5 px-4 font-mono font-medium text-slate-900 whitespace-nowrap">
+                        {user.uNumber}
+                      </td>
+
+                      {/* 3rd column: Email */}
+                      <td className="py-2.5 px-4 font-mono text-[11px] whitespace-nowrap">
                         <button
                           type="button"
                           onClick={() => {
@@ -632,9 +802,16 @@ export function StaffRosterView({
                         )}
                       </td>
                       <td className="py-2.5 px-4 text-center">
-                        <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-medium border border-slate-200">
-                          Standard Staff
-                        </span>
+                        {user.isAdmin ? (
+                          <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-[10px] font-semibold border border-purple-200 inline-flex items-center gap-1">
+                            <Shield className="w-3 h-3 text-purple-600" />
+                            <span>Administrator</span>
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-medium border border-slate-200">
+                            Standard Staff
+                          </span>
+                        )}
                       </td>
                       <td className="py-2.5 px-4">
                         <div className="flex items-center gap-2">

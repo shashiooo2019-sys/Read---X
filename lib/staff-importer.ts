@@ -387,7 +387,10 @@ export function analyzeStaffImport(
         email: row.email,
         isAls: row.isAls,
         isLead: row.isLead,
-        isAdmin: row.isAdmin ?? false,
+        isAdmin:
+          (row.uNumber?.trim().toUpperCase() === 'ADMIN' ||
+            row.email?.trim().toLowerCase() === 'admin@compliance.system') ??
+          false,
         department: row.department || 'Station Operations',
         title: row.isLead ? 'Station Lead' : row.isAls ? 'ALS Specialist' : 'Ground Team Member',
       };
@@ -453,7 +456,9 @@ export function analyzeStaffImport(
           email: row.email ? row.email.toLowerCase() : matched.email,
           isAls: row.isAls,
           isLead: row.isLead,
-          isAdmin: row.isAdmin !== undefined ? row.isAdmin : matched.isAdmin,
+          isAdmin:
+            matched.uNumber?.trim().toUpperCase() === 'ADMIN' ||
+            matched.email?.trim().toLowerCase() === 'admin@compliance.system',
           department: row.department || matched.department,
         };
         changedStaff.push({

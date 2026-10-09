@@ -1,4 +1,4 @@
-export type TargetGroup = 'ALL' | 'ALS' | 'Lead';
+export type TargetGroup = 'ALL' | 'ALS' | 'Lead' | 'ALS_AND_LEAD' | 'CUSTOM';
 
 export type TopicType =
   | 'Document Read and Sign'
@@ -50,9 +50,11 @@ export interface Topic {
   type: TopicType;
   customTypeDesc?: string;
   targetGroup: TargetGroup;
+  assignedUserIds?: string[]; // Specific staff IDs if chosen
   content: string;
   attachmentUrl?: string;
   attachmentName?: string;
+  publishedDate?: string; // YYYY-MM-DD
   effectiveDate: string; // YYYY-MM-DD
   dueDate: string; // YYYY-MM-DD
   createdAt: string; // ISO string

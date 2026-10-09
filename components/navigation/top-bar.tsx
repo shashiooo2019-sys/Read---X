@@ -42,28 +42,30 @@ export function TopBar({
               <div className="bg-[#FFB900] w-2.5 h-2.5"></div>
             </div>
             <button
-              onClick={() => onTabChange('my-compliance')}
+              onClick={() => onTabChange(currentUser.isAdmin ? 'admin-console' : 'my-compliance')}
               className="text-base sm:text-lg font-bold tracking-tight text-slate-900 hover:text-[#0078D4] transition-colors whitespace-nowrap text-left"
             >
-              Read & Sign Compliance
+              Read &amp; Sign Compliance
             </button>
           </div>
 
           {/* Zone 2: 4-6 Clean Text Navigation Links */}
           <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
-            <button
-              onClick={() => onTabChange('my-compliance')}
-              className={`py-1 transition-colors whitespace-nowrap relative ${
-                activeTab === 'my-compliance'
-                  ? 'text-slate-950 font-semibold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              My Compliance
-              {activeTab === 'my-compliance' && (
-                <span className="absolute bottom-[-17px] left-0 right-0 h-[2px] bg-[#0078D4]" />
-              )}
-            </button>
+            {!currentUser.isAdmin && (
+              <button
+                onClick={() => onTabChange('my-compliance')}
+                className={`py-1 transition-colors whitespace-nowrap relative ${
+                  activeTab === 'my-compliance'
+                    ? 'text-slate-950 font-semibold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                My Compliance
+                {activeTab === 'my-compliance' && (
+                  <span className="absolute bottom-[-17px] left-0 right-0 h-[2px] bg-[#0078D4]" />
+                )}
+              </button>
+            )}
 
             {currentUser.isAdmin && (
               <button
@@ -195,12 +197,14 @@ export function TopBar({
 
       {/* Mobile nav links */}
       <div className="md:hidden flex items-center justify-around border-t border-slate-100 py-2 px-4 bg-slate-50 text-xs">
-        <button
-          onClick={() => onTabChange('my-compliance')}
-          className={`py-1 px-2 rounded ${activeTab === 'my-compliance' ? 'bg-white font-semibold text-slate-900 shadow-sm' : 'text-slate-600'}`}
-        >
-          My Compliance
-        </button>
+        {!currentUser.isAdmin && (
+          <button
+            onClick={() => onTabChange('my-compliance')}
+            className={`py-1 px-2 rounded ${activeTab === 'my-compliance' ? 'bg-white font-semibold text-slate-900 shadow-sm' : 'text-slate-600'}`}
+          >
+            My Compliance
+          </button>
+        )}
         {currentUser.isAdmin && (
           <button
             onClick={() => onTabChange('admin-console')}

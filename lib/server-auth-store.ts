@@ -85,6 +85,18 @@ declare global {
   var __readAndSignStore: GlobalStoreState | undefined;
 }
 
+function isUserAdminAccount(user: Partial<User>): boolean {
+  const uNumber = user.uNumber?.trim().toUpperCase();
+  const email = user.email?.trim().toLowerCase();
+  const id = user.id?.trim().toLowerCase();
+  return (
+    uNumber === 'ADMIN' ||
+    email === 'admin@compliance.system' ||
+    email === 'admin' ||
+    id === 'u-admin'
+  );
+}
+
 function initStore(): GlobalStoreState {
   // Default approved private users
   const defaultApprovedPrivateUsers: ApprovedPrivateUser[] = [
@@ -97,7 +109,7 @@ function initStore(): GlobalStoreState {
       approvedBy: 'System',
       approvedAt: '2026-10-01T08:00:00Z',
       status: 'approved',
-      notes: 'App owner / Admin access',
+      notes: 'Station personnel',
     },
     {
       id: 'appr-01',
@@ -105,7 +117,7 @@ function initStore(): GlobalStoreState {
       workEmail: 'jane.doe@swiss.com',
       loginEmail: 'jane.doe@gmail.com',
       uNumber: 'U799201',
-      approvedBy: 'shashi.srivastava@dlh.de',
+      approvedBy: 'admin@compliance.system',
       approvedAt: '2026-10-01T08:00:00Z',
       status: 'approved',
       notes: 'Station contractor external access approved',
@@ -116,7 +128,7 @@ function initStore(): GlobalStoreState {
       workEmail: 'marcus.weber@dlh.de',
       loginEmail: 'm.weber.ops@outlook.com',
       uNumber: 'U789012',
-      approvedBy: 'sweta.khaneja@dlh.de',
+      approvedBy: 'admin@compliance.system',
       approvedAt: '2026-10-02T10:00:00Z',
       status: 'approved',
       notes: 'Field engineer approved private email',
@@ -137,8 +149,8 @@ function initStore(): GlobalStoreState {
         email: appr.loginEmail,
         workEmail: appr.workEmail,
         loginEmail: appr.loginEmail,
-        isAls: false,
-        isLead: false,
+        isAls: true,
+        isLead: true,
         isAdmin: false,
         isApprovedPrivateEmail: true,
         approvalStatus: 'approved',
@@ -150,13 +162,35 @@ function initStore(): GlobalStoreState {
     }
   }
 
+  // Ensure user admin exists
+  const hasAdmin = users.some(isUserAdminAccount);
+  if (!hasAdmin) {
+    users.unshift({
+      id: 'u-admin',
+      uNumber: 'ADMIN',
+      name: 'Administrator',
+      email: 'admin@compliance.system',
+      isAls: true,
+      isLead: true,
+      isAdmin: true,
+      department: 'System Administration',
+      title: 'System Administrator',
+      createdAt: '2026-10-01T08:00:00Z',
+    });
+  }
+
+  // Delete admin authority for all users except user admin
+  users.forEach(u => {
+    u.isAdmin = isUserAdminAccount(u);
+  });
+
   // Pre-fill audit logs
   const auditLogs: ServerAuditLog[] = [
     {
       id: 'audit-init-01',
       timestamp: '2026-10-01T08:00:00Z',
       action: 'user_approved',
-      performedBy: 'shashi.srivastava@dlh.de',
+      performedBy: 'admin@compliance.system',
       targetEmail: 'jane.doe@gmail.com',
       details: 'Approved private email jane.doe@gmail.com for Jane Doe (Swiss International Air Lines)',
     },
@@ -164,7 +198,7 @@ function initStore(): GlobalStoreState {
       id: 'audit-init-02',
       timestamp: '2026-10-02T10:00:00Z',
       action: 'user_approved',
-      performedBy: 'sweta.khaneja@dlh.de',
+      performedBy: 'admin@compliance.system',
       targetEmail: 'm.weber.ops@outlook.com',
       details: 'Approved private email m.weber.ops@outlook.com for Marcus Weber (Lufthansa German Airlines)',
     },
@@ -184,6 +218,27 @@ function initStore(): GlobalStoreState {
 
 if (!global.__readAndSignStore) {
   global.__readAndSignStore = initStore();
+} else {
+  // Resanitize in case process survived reload
+  const existingUsers = global.__readAndSignStore.users;
+  const hasAdmin = existingUsers.some(isUserAdminAccount);
+  if (!hasAdmin) {
+    existingUsers.unshift({
+      id: 'u-admin',
+      uNumber: 'ADMIN',
+      name: 'Administrator',
+      email: 'admin@compliance.system',
+      isAls: true,
+      isLead: true,
+      isAdmin: true,
+      department: 'System Administration',
+      title: 'System Administrator',
+      createdAt: '2026-10-01T08:00:00Z',
+    });
+  }
+  existingUsers.forEach(u => {
+    u.isAdmin = isUserAdminAccount(u);
+  });
 }
 
 const store = global.__readAndSignStore;
@@ -238,6 +293,7 @@ export const serverAuthStore = {
       workEmail: userData.workEmail || userData.email.trim().toLowerCase(),
       emailDomain: domain,
     };
+    newUser.isAdmin = isUserAdminAccount(newUser);
     store.users.push(newUser);
     return newUser;
   },
@@ -245,7 +301,9 @@ export const serverAuthStore = {
   updateUser(userId: string, updates: Partial<User>): User | undefined {
     const index = store.users.findIndex(u => u.id === userId);
     if (index === -1) return undefined;
-    store.users[index] = { ...store.users[index], ...updates };
+    const merged = { ...store.users[index], ...updates };
+    merged.isAdmin = isUserAdminAccount(merged);
+    store.users[index] = merged;
     return store.users[index];
   },
 

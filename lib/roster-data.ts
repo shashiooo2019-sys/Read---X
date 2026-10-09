@@ -1,6 +1,18 @@
 import { User } from './types';
 
 export const INITIAL_STAFF_ROSTER: User[] = [
+  // Administrator Account
+  {
+    id: 'u-admin',
+    uNumber: 'ADMIN',
+    name: 'Administrator',
+    email: 'admin@compliance.system',
+    isAls: true,
+    isLead: true,
+    isAdmin: true,
+    department: 'System Administration',
+    title: 'System Administrator'
+  },
   // Page 1
   {
     id: 'u-086936',
@@ -11,7 +23,7 @@ export const INITIAL_STAFF_ROSTER: User[] = [
     isLead: true,
     isAdmin: false,
     department: 'Station Operations / Compliance',
-    title: 'Lead Station Director & Admin'
+    title: 'Lead Station Director'
   },
   {
     id: 'u-788460',
@@ -22,7 +34,7 @@ export const INITIAL_STAFF_ROSTER: User[] = [
     isLead: true,
     isAdmin: false,
     department: 'Quality Assurance & Standards',
-    title: 'Lead Quality Auditor & Admin'
+    title: 'Lead Quality Auditor'
   },
   {
     id: 'u-086575',
@@ -33,7 +45,7 @@ export const INITIAL_STAFF_ROSTER: User[] = [
     isLead: true,
     isAdmin: false,
     department: 'Ground Operations',
-    title: 'Operations Lead & Admin'
+    title: 'Operations Lead'
   },
   {
     id: 'u-702475',

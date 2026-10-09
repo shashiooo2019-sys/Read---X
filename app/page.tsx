@@ -48,6 +48,9 @@ export default function Home() {
           if (data.authenticated && data.user) {
             setCurrentUser(data.user);
             setCurrentUserId(data.user.id);
+            if (data.user.isAdmin) {
+              setActiveTab('admin-console');
+            }
           } else {
             setCurrentUser(null);
             setCurrentUserId(null);
@@ -81,7 +84,11 @@ export default function Home() {
     setCurrentUser(user);
     setCurrentUserId(user.id);
     setDeviceLockedEmail(user.email);
-    setActiveTab('my-compliance');
+    if (user.isAdmin) {
+      setActiveTab('admin-console');
+    } else {
+      setActiveTab('my-compliance');
+    }
   };
 
   // Logout handler (Session cleared on server, device remains bound)
@@ -107,6 +114,11 @@ export default function Home() {
   const handleSwitchUser = (user: User) => {
     setCurrentUser(user);
     setCurrentUserId(user.id);
+    if (user.isAdmin) {
+      setActiveTab('admin-console');
+    } else {
+      setActiveTab('my-compliance');
+    }
   };
 
 
@@ -260,17 +272,17 @@ export default function Home() {
 
       {/* Main Content Area */}
       <main className="flex-1">
-        {activeTab === 'my-compliance' && (
+        {activeTab === 'my-compliance' && !currentUser.isAdmin && (
           <UserDashboard
             currentUser={currentUser}
             topics={topics}
             confirmations={confirmations}
             onConfirmTopic={handleConfirmTopic}
-            onOpenAdminConsole={currentUser.isAdmin ? () => setActiveTab('admin-console') : undefined}
+            onOpenAdminConsole={undefined}
           />
         )}
 
-        {activeTab === 'admin-console' && (
+        {(activeTab === 'admin-console' || (activeTab === 'my-compliance' && currentUser.isAdmin)) && (
           <AdminConsole
             users={users}
             topics={topics}
