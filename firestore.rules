@@ -27,7 +27,8 @@ service cloud.firestore {
 
     // Compliance verifications (confirmations, signatures, acknowledgments)
     match /compliance_verifications/{verificationId} {
-      allow read: if isValidId(verificationId);
+      allow get: if isValidId(verificationId);
+      allow list: if true;
       allow create: if isValidId(verificationId)
         && incoming().keys().hasAll(['id', 'topicId', 'userId', 'confirmedAt', 'status'])
         && incoming().id is string && incoming().id.size() <= 128
@@ -43,7 +44,8 @@ service cloud.firestore {
 
     // User passwords (stored password hashes)
     match /user_passwords/{userId} {
-      allow read: if isValidId(userId);
+      allow get: if isValidId(userId);
+      allow list: if true;
       allow create, update: if isValidId(userId)
         && incoming().keys().hasAll(['userId', 'email', 'passwordHash', 'updatedAt'])
         && incoming().userId is string && incoming().userId.size() <= 128
@@ -54,7 +56,8 @@ service cloud.firestore {
 
     // Topics collection
     match /topics/{topicId} {
-      allow read: if isValidId(topicId);
+      allow get: if isValidId(topicId);
+      allow list: if true;
       allow create, update: if isValidId(topicId)
         && incoming().keys().hasAll(['id', 'title', 'type', 'targetGroup', 'content', 'effectiveDate', 'dueDate'])
         && incoming().id is string && incoming().id.size() <= 128
@@ -62,9 +65,22 @@ service cloud.firestore {
       allow delete: if isValidId(topicId);
     }
 
+    // Topic assignments collection (assignments of topics to selected staff)
+    match /topic_assignments/{assignmentId} {
+      allow get: if isValidId(assignmentId);
+      allow list: if true;
+      allow create, update: if isValidId(assignmentId)
+        && incoming().keys().hasAll(['id', 'topicId', 'userId', 'status', 'assignedAt'])
+        && incoming().id is string && incoming().id.size() <= 128
+        && incoming().topicId is string && incoming().topicId.size() <= 128
+        && incoming().userId is string && incoming().userId.size() <= 128;
+      allow delete: if isValidId(assignmentId);
+    }
+
     // Staff roster users
     match /users/{userId} {
-      allow read: if isValidId(userId);
+      allow get: if isValidId(userId);
+      allow list: if true;
       allow create, update: if isValidId(userId)
         && incoming().keys().hasAll(['id', 'uNumber', 'name', 'email', 'isAls', 'isLead', 'isAdmin'])
         && incoming().id is string && incoming().id.size() <= 128

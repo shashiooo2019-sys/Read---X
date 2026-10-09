@@ -71,9 +71,9 @@ export function AcknowledgmentModal({
     setIsSubmitting(true);
     setTimeout(() => {
       onConfirm(topic.id, currentUser.name, isPastDeadline ? lateReason.trim() : undefined);
-      setSuccessReceipt(`ACK-${Date.now().toString(36).toUpperCase()}`);
       setIsSubmitting(false);
-    }, 600);
+      onClose();
+    }, 350);
   };
 
   return (

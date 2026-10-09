@@ -38,7 +38,9 @@ import {
   ChevronDown,
   BarChart2,
   Settings,
+  Cloud,
 } from 'lucide-react';
+import { saveAllTopicsAndAssignmentsToFirestore } from '@/lib/firebase';
 
 interface AdminConsoleProps {
   users: User[];
@@ -109,6 +111,30 @@ export function AdminConsole({
   // Multi-select for bulk actions
   const [selectedTopicIds, setSelectedTopicIds] = useState<Set<string>>(new Set());
   const tableScrollRef = React.useRef<HTMLDivElement>(null);
+
+  // Firestore sync feedback state
+  const [isSyncingFirebase, setIsSyncingFirebase] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+
+  const handleSyncFirestore = async () => {
+    setIsSyncingFirebase(true);
+    setSyncMessage(null);
+    try {
+      const result = await saveAllTopicsAndAssignmentsToFirestore(topics, users);
+      if (result.success) {
+        setSyncMessage(`✓ Synced ${result.topicsCount} topic(s) and ${result.assignmentsCount} staff assignment(s) to Firestore`);
+        setTimeout(() => setSyncMessage(null), 4500);
+      } else {
+        setSyncMessage('⚠️ Could not complete Firestore sync');
+        setTimeout(() => setSyncMessage(null), 4000);
+      }
+    } catch {
+      setSyncMessage('⚠️ Firestore sync encountered an error');
+      setTimeout(() => setSyncMessage(null), 4000);
+    } finally {
+      setIsSyncingFirebase(false);
+    }
+  };
 
   // Collapsible section states (default as collapsed)
   const [showHeaderBar, setShowHeaderBar] = useState(false);
@@ -298,6 +324,22 @@ export function AdminConsole({
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+      {/* Firestore Sync Notification */}
+      {syncMessage && (
+        <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center justify-between shadow-xs transition animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <Cloud className="w-4 h-4 text-emerald-600" />
+            <span>{syncMessage}</span>
+          </div>
+          <button
+            onClick={() => setSyncMessage(null)}
+            className="text-emerald-600 hover:text-emerald-900 text-xs px-2 py-0.5 rounded hover:bg-emerald-100 cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Section 1: Header bar with primary CTAs (Collapsible, default collapsed) */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden transition">
         {/* Collapsible Header */}
@@ -384,6 +426,16 @@ export function AdminConsole({
                   <span>Manage Staff ({users.length})</span>
                 </button>
               )}
+
+              <button
+                onClick={handleSyncFirestore}
+                disabled={isSyncingFirebase}
+                className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 rounded-lg transition border border-slate-200 flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-60"
+                title="Save all created topics and staff assignments to Firebase Firestore"
+              >
+                <Cloud className={`w-3.5 h-3.5 ${isSyncingFirebase ? 'text-blue-500 animate-pulse' : 'text-blue-600'}`} />
+                <span>{isSyncingFirebase ? 'Syncing...' : 'Sync Firestore'}</span>
+              </button>
 
               <button
                 onClick={handleBulkExport}

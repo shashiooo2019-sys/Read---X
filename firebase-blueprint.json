@@ -50,8 +50,13 @@
         "id": { "type": "string", "description": "Unique topic ID" },
         "title": { "type": "string", "description": "Topic headline / title" },
         "type": { "type": "string", "description": "Topic directive type" },
+        "customTypeDesc": { "type": "string", "description": "Custom type description when type is Others" },
         "targetGroup": { "type": "string", "description": "Target audience group (ALL, ALS, Lead, ALS_AND_LEAD, CUSTOM)" },
+        "assignedUserIds": { "type": "array", "description": "Specific roster staff IDs assigned to this topic" },
         "content": { "type": "string", "description": "Topic content / instructions" },
+        "attachmentUrl": { "type": "string", "description": "Optional attachment URL or document link" },
+        "attachmentName": { "type": "string", "description": "Optional attachment display name" },
+        "publishedDate": { "type": "string", "description": "Publication date YYYY-MM-DD" },
         "effectiveDate": { "type": "string", "description": "Effective date YYYY-MM-DD" },
         "dueDate": { "type": "string", "description": "Due date YYYY-MM-DD" },
         "createdAt": { "type": "string", "description": "ISO timestamp of topic creation" },
@@ -59,6 +64,31 @@
         "version": { "type": "string", "description": "Document version string" }
       },
       "required": ["id", "title", "type", "targetGroup", "content", "effectiveDate", "dueDate", "createdAt", "createdBy"]
+    },
+    "TopicAssignment": {
+      "title": "TopicAssignment",
+      "description": "Compliance topic assignment record linking a topic to an assigned staff member",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique assignment record ID (topicId_userId)" },
+        "topicId": { "type": "string", "description": "ID of the assigned topic" },
+        "topicTitle": { "type": "string", "description": "Title of the assigned topic" },
+        "topicType": { "type": "string", "description": "Directive type of the assigned topic" },
+        "userId": { "type": "string", "description": "User ID of the assigned staff member" },
+        "userName": { "type": "string", "description": "Full name of the assigned staff member" },
+        "userEmail": { "type": "string", "description": "Email address of the assigned staff member" },
+        "uNumber": { "type": "string", "description": "Staff member U-Number" },
+        "targetGroup": { "type": "string", "description": "Target group classification of the topic" },
+        "isIndividuallySelected": { "type": "boolean", "description": "Whether staff was specifically selected individually" },
+        "assignedAt": { "type": "string", "description": "ISO timestamp when assignment was created" },
+        "dueDate": { "type": "string", "description": "Due date for acknowledgment YYYY-MM-DD" },
+        "status": {
+          "type": "string",
+          "enum": ["assigned", "confirmed", "pending"],
+          "description": "Current status of the assignment"
+        }
+      },
+      "required": ["id", "topicId", "userId", "assignedAt", "dueDate", "status"]
     },
     "User": {
       "title": "User",
@@ -90,6 +120,10 @@
     "/topics/{topicId}": {
       "schema": "Topic",
       "description": "Compliance topics, briefings, and directives"
+    },
+    "/topic_assignments/{assignmentId}": {
+      "schema": "TopicAssignment",
+      "description": "Compliance topic assignment records linking topics to assigned staff members"
     },
     "/users/{userId}": {
       "schema": "User",

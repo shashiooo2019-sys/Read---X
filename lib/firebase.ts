@@ -9,10 +9,12 @@ import {
   collection,
   writeBatch,
   getDocFromServer,
+  query,
+  where,
   Firestore,
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
-import { TopicConfirmation, Topic, User } from './types';
+import { TopicConfirmation, Topic, User, TopicAssignment } from './types';
 
 // Initialize Firebase App
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
@@ -231,13 +233,44 @@ export async function fetchAllPasswordsFromFirestore(): Promise<Map<string, User
 }
 
 // ==========================================
-// 3. TOPICS & STAFF SYNC
+// 3. TOPICS & STAFF ASSIGNMENTS SYNC
 // ==========================================
 
-export async function saveTopicToFirestore(topic: Topic): Promise<boolean> {
+export async function saveTopicToFirestore(topic: Topic, assignedStaff?: User[]): Promise<boolean> {
   try {
     const docRef = doc(db, 'topics', topic.id);
-    await setDoc(docRef, topic, { merge: true });
+    
+    // Clean all undefined fields before saving to Firestore
+    const payload: Record<string, any> = {
+      id: topic.id,
+      title: topic.title,
+      type: topic.type,
+      targetGroup: topic.targetGroup,
+      content: topic.content,
+      effectiveDate: topic.effectiveDate,
+      dueDate: topic.dueDate,
+      createdAt: topic.createdAt || new Date().toISOString(),
+      createdBy: topic.createdBy || 'Administrator',
+    };
+
+    if (topic.customTypeDesc) payload.customTypeDesc = topic.customTypeDesc;
+    if (Array.isArray(topic.assignedUserIds)) {
+      payload.assignedUserIds = topic.assignedUserIds;
+    } else {
+      payload.assignedUserIds = [];
+    }
+    if (topic.attachmentUrl) payload.attachmentUrl = topic.attachmentUrl;
+    if (topic.attachmentName) payload.attachmentName = topic.attachmentName;
+    if (topic.publishedDate) payload.publishedDate = topic.publishedDate;
+    if (topic.version) payload.version = topic.version;
+
+    await setDoc(docRef, payload, { merge: true });
+
+    // Save assignments to Firestore if staff members provided
+    if (assignedStaff && assignedStaff.length > 0) {
+      await saveTopicAssignmentsToFirestore(topic, assignedStaff);
+    }
+
     return true;
   } catch (error) {
     console.error('Failed to save topic to Firebase:', error);
@@ -245,10 +278,133 @@ export async function saveTopicToFirestore(topic: Topic): Promise<boolean> {
   }
 }
 
+export async function saveTopicAssignmentsToFirestore(
+  topic: Topic,
+  staffMembers: User[]
+): Promise<boolean> {
+  try {
+    if (!staffMembers || staffMembers.length === 0) return true;
+    
+    const chunkSize = 400;
+    for (let i = 0; i < staffMembers.length; i += chunkSize) {
+      const chunk = staffMembers.slice(i, i + chunkSize);
+      const batch = writeBatch(db);
+
+      for (const staff of chunk) {
+        const assignmentId = `${topic.id}_${staff.id}`;
+        const assignmentRef = doc(db, 'topic_assignments', assignmentId);
+
+        const assignmentData: TopicAssignment = {
+          id: assignmentId,
+          topicId: topic.id,
+          topicTitle: topic.title,
+          topicType: topic.type,
+          userId: staff.id,
+          userName: staff.name,
+          userEmail: staff.email,
+          uNumber: staff.uNumber,
+          targetGroup: topic.targetGroup,
+          isIndividuallySelected: Boolean(topic.assignedUserIds && topic.assignedUserIds.includes(staff.id)),
+          assignedAt: topic.createdAt || new Date().toISOString(),
+          dueDate: topic.dueDate,
+          status: 'assigned',
+        };
+
+        batch.set(assignmentRef, assignmentData, { merge: true });
+      }
+
+      await batch.commit();
+    }
+    return true;
+  } catch (error) {
+    console.error('Failed to save topic assignments to Firebase:', error);
+    return false;
+  }
+}
+
+export async function saveAllTopicsAndAssignmentsToFirestore(
+  topics: Topic[],
+  allUsers: User[] = []
+): Promise<{ topicsCount: number; assignmentsCount: number; success: boolean }> {
+  try {
+    const testIds = new Set(['top-101', 'top-102', 'top-103', 'top-104', 'top-105', 'top-106', 'top-107', 'top-108']);
+    const validTopics = topics.filter(t => !testIds.has(t.id) && !t.id?.startsWith('top-10'));
+    
+    let totalAssignments = 0;
+    for (const topic of validTopics) {
+      // Resolve staff assigned to this topic
+      let assignedStaff: User[] = [];
+      if (allUsers.length > 0) {
+        assignedStaff = allUsers.filter(u => {
+          if (topic.targetGroup === 'CUSTOM') {
+            return Boolean(topic.assignedUserIds && topic.assignedUserIds.includes(u.id));
+          }
+          if (topic.assignedUserIds && topic.assignedUserIds.includes(u.id)) {
+            return true;
+          }
+          if (topic.targetGroup === 'ALL') return true;
+          if (topic.targetGroup === 'ALS') return u.isAls === true;
+          if (topic.targetGroup === 'Lead') return u.isLead === true;
+          if (topic.targetGroup === 'ALS_AND_LEAD') return u.isAls === true || u.isLead === true;
+          return false;
+        });
+      } else if (topic.assignedUserIds && topic.assignedUserIds.length > 0) {
+        assignedStaff = topic.assignedUserIds.map(id => ({
+          id,
+          name: id,
+          email: '',
+          uNumber: id,
+          isAls: false,
+          isLead: false,
+          isAdmin: false,
+        }));
+      }
+
+      await saveTopicToFirestore(topic, assignedStaff);
+      totalAssignments += assignedStaff.length;
+    }
+
+    return { topicsCount: validTopics.length, assignmentsCount: totalAssignments, success: true };
+  } catch (err) {
+    console.error('Failed to save all topics and assignments to Firebase:', err);
+    return { topicsCount: 0, assignmentsCount: 0, success: false };
+  }
+}
+
+export async function fetchTopicAssignmentsFromFirestore(topicId?: string): Promise<TopicAssignment[]> {
+  try {
+    const colRef = collection(db, 'topic_assignments');
+    const q = topicId ? query(colRef, where('topicId', '==', topicId)) : colRef;
+    const snapshot = await getDocs(q);
+    const results: TopicAssignment[] = [];
+    snapshot.forEach(docSnap => {
+      results.push(docSnap.data() as TopicAssignment);
+    });
+    return results;
+  } catch (error) {
+    console.warn('Could not fetch topic assignments from Firebase:', error);
+    return [];
+  }
+}
+
 export async function deleteTopicFromFirestore(topicId: string): Promise<boolean> {
   try {
     const docRef = doc(db, 'topics', topicId);
     await deleteDoc(docRef);
+
+    // Delete corresponding assignments from topic_assignments
+    try {
+      const q = query(collection(db, 'topic_assignments'), where('topicId', '==', topicId));
+      const snaps = await getDocs(q);
+      if (!snaps.empty) {
+        const batch = writeBatch(db);
+        snaps.forEach(s => batch.delete(s.ref));
+        await batch.commit();
+      }
+    } catch (assignErr) {
+      console.warn('Notice deleting topic assignments from Firebase:', assignErr);
+    }
+
     return true;
   } catch (error) {
     console.error('Failed to delete topic from Firebase:', error);
@@ -288,15 +444,95 @@ export async function purgeTestTopicsFromFirestore(): Promise<void> {
       // ignore
     }
   }
+  // Also clean up any test assignments
+  try {
+    for (const id of testIds) {
+      const q = query(collection(db, 'topic_assignments'), where('topicId', '==', id));
+      const snaps = await getDocs(q);
+      if (!snaps.empty) {
+        const batch = writeBatch(db);
+        snaps.forEach(s => batch.delete(s.ref));
+        await batch.commit();
+      }
+    }
+  } catch {
+    // ignore
+  }
 }
 
 export async function saveUserToFirestore(user: User): Promise<boolean> {
   try {
     const docRef = doc(db, 'users', user.id);
-    await setDoc(docRef, user, { merge: true });
+    const payload: Record<string, any> = {
+      id: user.id,
+      uNumber: user.uNumber,
+      name: user.name,
+      email: user.email,
+      isAls: Boolean(user.isAls),
+      isLead: Boolean(user.isLead),
+      isAdmin: Boolean(user.isAdmin),
+    };
+    if (user.loginEmail) payload.loginEmail = user.loginEmail;
+    if (user.workEmail) payload.workEmail = user.workEmail;
+    if (user.department) payload.department = user.department;
+    if (user.title) payload.title = user.title;
+    if (user.accountStatus) payload.accountStatus = user.accountStatus;
+    if (user.approvalStatus) payload.approvalStatus = user.approvalStatus;
+
+    await setDoc(docRef, payload, { merge: true });
     return true;
   } catch (error) {
     console.error('Failed to save user to Firebase:', error);
+    return false;
+  }
+}
+
+export async function fetchUsersFromFirestore(): Promise<User[]> {
+  try {
+    const colRef = collection(db, 'users');
+    const snapshot = await getDocs(colRef);
+    const results: User[] = [];
+    snapshot.forEach(docSnap => {
+      results.push(docSnap.data() as User);
+    });
+    return results;
+  } catch (error) {
+    console.warn('Could not fetch users from Firebase:', error);
+    return [];
+  }
+}
+
+export async function saveAllUsersToFirestore(users: User[]): Promise<boolean> {
+  try {
+    if (!users || users.length === 0) return true;
+    const chunkSize = 400;
+    for (let i = 0; i < users.length; i += chunkSize) {
+      const chunk = users.slice(i, i + chunkSize);
+      const batch = writeBatch(db);
+      for (const u of chunk) {
+        const docRef = doc(db, 'users', u.id);
+        const payload: Record<string, any> = {
+          id: u.id,
+          uNumber: u.uNumber,
+          name: u.name,
+          email: u.email,
+          isAls: Boolean(u.isAls),
+          isLead: Boolean(u.isLead),
+          isAdmin: Boolean(u.isAdmin),
+        };
+        if (u.loginEmail) payload.loginEmail = u.loginEmail;
+        if (u.workEmail) payload.workEmail = u.workEmail;
+        if (u.department) payload.department = u.department;
+        if (u.title) payload.title = u.title;
+        if (u.accountStatus) payload.accountStatus = u.accountStatus;
+        if (u.approvalStatus) payload.approvalStatus = u.approvalStatus;
+        batch.set(docRef, payload, { merge: true });
+      }
+      await batch.commit();
+    }
+    return true;
+  } catch (error) {
+    console.error('Failed to batch save users to Firebase:', error);
     return false;
   }
 }

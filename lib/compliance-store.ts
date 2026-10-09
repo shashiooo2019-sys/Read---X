@@ -8,10 +8,14 @@ import {
   saveAllVerificationsToFirestore,
   fetchVerificationsFromFirestore,
   saveTopicToFirestore,
+  saveTopicAssignmentsToFirestore,
+  saveAllTopicsAndAssignmentsToFirestore,
   deleteTopicFromFirestore,
   fetchTopicsFromFirestore,
   purgeTestTopicsFromFirestore,
   saveUserToFirestore,
+  fetchUsersFromFirestore,
+  saveAllUsersToFirestore,
 } from './firebase';
 
 const TEST_TOPIC_IDS = new Set([
@@ -25,16 +29,28 @@ const TEST_TOPIC_IDS = new Set([
   'top-108',
 ]);
 
-const STORAGE_KEYS = {
-  USERS: 'read_and_sign_users_v1',
-  TOPICS: 'read_and_sign_topics_v1',
-  CONFIRMATIONS: 'read_and_sign_confirmations_v1',
-  CURRENT_USER_ID: 'read_and_sign_current_user_id_v1',
-  M365_SESSION: 'read_and_sign_m365_session_v1',
-};
-
 // Check if running in browser
 const isBrowser = typeof window !== 'undefined';
+
+// PURGE ANY LEGACY BROWSER LOCAL STORAGE (Zero browser storage policy)
+if (isBrowser) {
+  try {
+    localStorage.removeItem('read_and_sign_users_v1');
+    localStorage.removeItem('read_and_sign_topics_v1');
+    localStorage.removeItem('read_and_sign_confirmations_v1');
+    localStorage.removeItem('read_and_sign_current_user_id_v1');
+    localStorage.removeItem('read_and_sign_m365_session_v1');
+  } catch {
+    // ignore
+  }
+}
+
+// In-memory runtime state (Zero browser persistence - all permanent data is stored in Firestore)
+let inMemoryUsers: User[] = [...INITIAL_STAFF_ROSTER];
+let inMemoryTopics: Topic[] = [];
+let inMemoryConfirmations: TopicConfirmation[] = [];
+let inMemoryCurrentUserId: string | null = null;
+let inMemoryM365Session: { email: string; loggedInAt: string; token: string } | null = null;
 
 export function isUserAdmin(user: Partial<User> | null | undefined): boolean {
   if (!user) return false;
@@ -50,187 +66,127 @@ export function isUserAdmin(user: Partial<User> | null | undefined): boolean {
 }
 
 export function getStoredUsers(): User[] {
-  if (!isBrowser) return INITIAL_STAFF_ROSTER;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEYS.USERS);
-    if (!raw) {
-      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(INITIAL_STAFF_ROSTER));
-      return INITIAL_STAFF_ROSTER;
-    }
-    const parsed: User[] = JSON.parse(raw);
-    let modified = false;
-
-    // Ensure user admin exists
-    const hasAdmin = parsed.some(isUserAdmin);
-    if (!hasAdmin) {
-      parsed.unshift({
-        id: 'u-admin',
-        uNumber: 'ADMIN',
-        name: 'Administrator',
-        email: 'admin@compliance.system',
-        isAls: true,
-        isLead: true,
-        isAdmin: true,
-        department: 'System Administration',
-        title: 'System Administrator'
-      });
-      modified = true;
-    }
-
-    // Strip admin authority from all users except user admin
-    parsed.forEach(u => {
-      if (isUserAdmin(u)) {
-        if (!u.isAdmin) {
-          u.isAdmin = true;
-          modified = true;
-        }
-      } else {
-        if (u.isAdmin) {
-          u.isAdmin = false;
-          modified = true;
-        }
-      }
-    });
-
-    if (modified) {
-      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(parsed));
-    }
-    return parsed;
-  } catch (e) {
-    console.error('Failed to load users from storage', e);
-    return INITIAL_STAFF_ROSTER;
-  }
+  return inMemoryUsers;
 }
 
 export function saveUsers(users: User[]) {
-  if (!isBrowser) return;
   // Ensure admin authority is stripped from all users except user admin
   const sanitizedUsers = users.map(u => ({
     ...u,
-    isAdmin: isUserAdmin(u)
+    isAdmin: isUserAdmin(u),
   }));
-  localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(sanitizedUsers));
-  window.dispatchEvent(new Event('read_and_sign_data_changed'));
-}
-
-export function getStoredTopics(): Topic[] {
-  if (!isBrowser) return INITIAL_TOPICS;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEYS.TOPICS);
-    if (!raw) {
-      localStorage.setItem(STORAGE_KEYS.TOPICS, JSON.stringify([]));
-      return [];
-    }
-    const parsed: Topic[] = JSON.parse(raw);
-    // Filter out all test topics
-    const sanitized = parsed.filter(t => !TEST_TOPIC_IDS.has(t.id) && !t.id?.startsWith('top-10'));
-    if (sanitized.length !== parsed.length) {
-      localStorage.setItem(STORAGE_KEYS.TOPICS, JSON.stringify(sanitized));
-    }
-    return sanitized;
-  } catch (e) {
-    console.error('Failed to load topics from storage', e);
-    return [];
+  inMemoryUsers = sanitizedUsers;
+  if (isBrowser) {
+    window.dispatchEvent(new Event('read_and_sign_data_changed'));
   }
-}
-
-export function saveTopics(topics: Topic[]) {
-  if (!isBrowser) return;
-  const sanitized = topics.filter(t => !TEST_TOPIC_IDS.has(t.id) && !t.id?.startsWith('top-10'));
-  localStorage.setItem(STORAGE_KEYS.TOPICS, JSON.stringify(sanitized));
-  window.dispatchEvent(new Event('read_and_sign_data_changed'));
-
-  // Save new/updated topics to Firebase Firestore
-  sanitized.forEach(topic => {
-    saveTopicToFirestore(topic).catch(err => {
-      console.warn('Firebase topic save background notice:', err);
-    });
+  // Persist directly to Firestore (zero browser storage)
+  saveAllUsersToFirestore(sanitizedUsers).catch(err => {
+    console.warn('Firebase users save notice:', err);
   });
 }
 
-// Synchronize topics with Firebase Firestore
-export async function syncTopicsWithFirebase(): Promise<Topic[]> {
-  if (!isBrowser) return [];
+export function getStoredTopics(): Topic[] {
+  return inMemoryTopics;
+}
+
+export function saveTopics(topics: Topic[], users?: User[]) {
+  const sanitized = topics.filter(t => !TEST_TOPIC_IDS.has(t.id) && !t.id?.startsWith('top-10'));
+  inMemoryTopics = sanitized;
+  if (isBrowser) {
+    window.dispatchEvent(new Event('read_and_sign_data_changed'));
+  }
+
+  const roster = users || inMemoryUsers;
+  // Persist all topics and staff assignments to Firebase Firestore (zero browser storage)
+  saveAllTopicsAndAssignmentsToFirestore(sanitized, roster).catch(err => {
+    console.warn('Firebase topics and staff assignments save notice:', err);
+  });
+}
+
+// Synchronize topics and staff assignments directly from Firebase Firestore
+export async function syncTopicsWithFirebase(users?: User[]): Promise<Topic[]> {
   try {
     await purgeTestTopicsFromFirestore().catch(() => null);
     const remote = await fetchTopicsFromFirestore();
-    const local = getStoredTopics();
+    const roster = users || inMemoryUsers;
 
-    const topicMap = new Map<string, Topic>();
-    local.forEach(t => topicMap.set(t.id, t));
-    remote.forEach(t => topicMap.set(t.id, t));
-    const merged = Array.from(topicMap.values()).filter(
+    // Filter out test topics
+    const cleanRemote = remote.filter(
       t => !TEST_TOPIC_IDS.has(t.id) && !t.id?.startsWith('top-10')
     );
 
-    localStorage.setItem(STORAGE_KEYS.TOPICS, JSON.stringify(merged));
-    window.dispatchEvent(new Event('read_and_sign_data_changed'));
-    return merged;
+    inMemoryTopics = cleanRemote;
+    if (isBrowser) {
+      window.dispatchEvent(new Event('read_and_sign_data_changed'));
+    }
+
+    return cleanRemote;
   } catch (err) {
-    console.warn('Failed to sync topics with Firebase:', err);
-    return getStoredTopics();
+    console.warn('Failed to sync topics from Firebase:', err);
+    return inMemoryTopics;
   }
 }
 
 export function getStoredConfirmations(): TopicConfirmation[] {
-  if (!isBrowser) return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_KEYS.CONFIRMATIONS);
-    if (!raw) {
-      const initial = generateInitialConfirmations();
-      localStorage.setItem(STORAGE_KEYS.CONFIRMATIONS, JSON.stringify(initial));
-      return initial;
-    }
-    const parsed: TopicConfirmation[] = JSON.parse(raw);
-    // Filter out confirmations for test topics
-    const sanitized = parsed.filter(
-      c => !TEST_TOPIC_IDS.has(c.topicId) && !c.topicId?.startsWith('top-10')
-    );
-    if (sanitized.length !== parsed.length) {
-      localStorage.setItem(STORAGE_KEYS.CONFIRMATIONS, JSON.stringify(sanitized));
-    }
-    return sanitized;
-  } catch (e) {
-    console.error('Failed to load confirmations from storage', e);
-    return [];
-  }
+  return inMemoryConfirmations;
 }
 
 export function saveConfirmations(confirmations: TopicConfirmation[]) {
-  if (!isBrowser) return;
-  localStorage.setItem(STORAGE_KEYS.CONFIRMATIONS, JSON.stringify(confirmations));
-  window.dispatchEvent(new Event('read_and_sign_data_changed'));
+  const sanitized = confirmations.filter(
+    c => !TEST_TOPIC_IDS.has(c.topicId) && !c.topicId?.startsWith('top-10')
+  );
+  inMemoryConfirmations = sanitized;
+  if (isBrowser) {
+    window.dispatchEvent(new Event('read_and_sign_data_changed'));
+  }
 
-  // Automatically save all compliance verifications to Firebase Firestore in the background
-  saveAllVerificationsToFirestore(confirmations).catch(err => {
-    console.warn('Firebase verifications sync background notice:', err);
+  // Automatically save all compliance verifications directly to Firebase Firestore (zero browser storage)
+  saveAllVerificationsToFirestore(sanitized).catch(err => {
+    console.warn('Firebase verifications sync notice:', err);
   });
 }
 
-// Synchronize compliance verifications with Firebase Firestore
+// Synchronize compliance verifications directly from Firebase Firestore
 export async function syncConfirmationsWithFirebase(): Promise<TopicConfirmation[]> {
-  if (!isBrowser) return [];
   try {
     const remote = await fetchVerificationsFromFirestore();
-    const local = getStoredConfirmations();
-    if (remote && remote.length > 0) {
-      // Merge remote and local (keyed by ID)
-      const mergedMap = new Map<string, TopicConfirmation>();
-      local.forEach(c => mergedMap.set(c.id, c));
-      remote.forEach(c => mergedMap.set(c.id, c));
-      const merged = Array.from(mergedMap.values());
-      localStorage.setItem(STORAGE_KEYS.CONFIRMATIONS, JSON.stringify(merged));
+    const cleanRemote = (remote || []).filter(
+      c => !TEST_TOPIC_IDS.has(c.topicId) && !c.topicId?.startsWith('top-10')
+    );
+
+    inMemoryConfirmations = cleanRemote;
+    if (isBrowser) {
       window.dispatchEvent(new Event('read_and_sign_data_changed'));
-      return merged;
-    } else if (local && local.length > 0) {
-      // Seed Firebase with initial confirmations
-      await saveAllVerificationsToFirestore(local);
-      return local;
     }
+    return cleanRemote;
   } catch (err) {
-    console.warn('Failed to sync compliance verifications with Firebase:', err);
+    console.warn('Failed to sync compliance verifications from Firebase:', err);
+    return inMemoryConfirmations;
   }
-  return getStoredConfirmations();
+}
+
+// Synchronize staff roster directly from Firebase Firestore
+export async function syncUsersWithFirebase(): Promise<User[]> {
+  try {
+    const remote = await fetchUsersFromFirestore();
+    if (remote && remote.length > 0) {
+      inMemoryUsers = remote.map(u => ({
+        ...u,
+        isAdmin: isUserAdmin(u),
+      }));
+    } else {
+      // Seed initial staff roster to Firestore
+      await saveAllUsersToFirestore(INITIAL_STAFF_ROSTER);
+      inMemoryUsers = [...INITIAL_STAFF_ROSTER];
+    }
+    if (isBrowser) {
+      window.dispatchEvent(new Event('read_and_sign_data_changed'));
+    }
+    return inMemoryUsers;
+  } catch (err) {
+    console.warn('Failed to sync users from Firebase:', err);
+    return inMemoryUsers;
+  }
 }
 
 export async function saveSingleVerificationDirect(conf: TopicConfirmation): Promise<boolean> {
@@ -238,37 +194,22 @@ export async function saveSingleVerificationDirect(conf: TopicConfirmation): Pro
 }
 
 export function getCurrentUserId(): string | null {
-  if (!isBrowser) return null;
-  return localStorage.getItem(STORAGE_KEYS.CURRENT_USER_ID);
+  return inMemoryCurrentUserId;
 }
 
 export function setCurrentUserId(userId: string | null) {
-  if (!isBrowser) return;
-  if (userId) {
-    localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, userId);
-  } else {
-    localStorage.removeItem(STORAGE_KEYS.CURRENT_USER_ID);
+  inMemoryCurrentUserId = userId;
+  if (isBrowser) {
+    window.dispatchEvent(new Event('read_and_sign_auth_changed'));
   }
-  window.dispatchEvent(new Event('read_and_sign_auth_changed'));
 }
 
 export function getM365Session(): { email: string; loggedInAt: string; token: string } | null {
-  if (!isBrowser) return null;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEYS.M365_SESSION);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
+  return inMemoryM365Session;
 }
 
 export function setM365Session(session: { email: string; loggedInAt: string; token: string } | null) {
-  if (!isBrowser) return;
-  if (session) {
-    localStorage.setItem(STORAGE_KEYS.M365_SESSION, JSON.stringify(session));
-  } else {
-    localStorage.removeItem(STORAGE_KEYS.M365_SESSION);
-  }
+  inMemoryM365Session = session;
 }
 
 export const APP_REFERENCE_DATE = '2026-10-08';
@@ -570,9 +511,15 @@ export function matchesDateFilter(
 
 // Reset data to defaults if requested
 export function resetToDefaults() {
-  if (!isBrowser) return;
-  localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(INITIAL_STAFF_ROSTER));
-  localStorage.setItem(STORAGE_KEYS.TOPICS, JSON.stringify(INITIAL_TOPICS));
-  localStorage.setItem(STORAGE_KEYS.CONFIRMATIONS, JSON.stringify(generateInitialConfirmations()));
-  window.dispatchEvent(new Event('read_and_sign_data_changed'));
+  inMemoryUsers = [...INITIAL_STAFF_ROSTER];
+  inMemoryTopics = [];
+  inMemoryConfirmations = [];
+  if (isBrowser) {
+    try {
+      localStorage.clear();
+    } catch {
+      // ignore
+    }
+    window.dispatchEvent(new Event('read_and_sign_data_changed'));
+  }
 }

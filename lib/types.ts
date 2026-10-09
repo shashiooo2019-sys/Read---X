@@ -62,6 +62,22 @@ export interface Topic {
   version?: string;
 }
 
+export interface TopicAssignment {
+  id: string; // `${topicId}_${userId}`
+  topicId: string;
+  topicTitle: string;
+  topicType: TopicType;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  uNumber: string;
+  targetGroup: TargetGroup;
+  isIndividuallySelected: boolean;
+  assignedAt: string; // ISO timestamp
+  dueDate: string; // YYYY-MM-DD
+  status: 'assigned' | 'confirmed' | 'pending';
+}
+
 export interface TopicConfirmation {
   id: string;
   topicId: string;

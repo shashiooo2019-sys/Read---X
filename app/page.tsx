@@ -13,14 +13,16 @@ import {
   saveConfirmations,
   getCurrentUserId,
   setCurrentUserId,
-  resetToDefaults,
   syncConfirmationsWithFirebase,
   syncTopicsWithFirebase,
+  syncUsersWithFirebase,
+  isUserEligibleForTopic,
 } from '@/lib/compliance-store';
 import {
   saveVerificationToFirestore,
   deleteVerificationFromFirestore,
   saveTopicToFirestore,
+  saveTopicAssignmentsToFirestore,
   deleteTopicFromFirestore,
 } from '@/lib/firebase';
 import { GoogleLogin } from '@/components/auth/google-login';
@@ -29,6 +31,7 @@ import { UserDashboard } from '@/components/user/user-dashboard';
 import { AdminConsole } from '@/components/admin/admin-console';
 import { StaffRosterView } from '@/components/admin/staff-roster-view';
 import { ReportsView } from '@/components/admin/reports-view';
+import { FirestoreSaveModal, FirestoreConfirmationDetails } from '@/components/common/firestore-save-modal';
 
 export default function Home() {
   const mounted = React.useSyncExternalStore(
@@ -44,6 +47,7 @@ export default function Home() {
   const [deviceLockedEmail, setDeviceLockedEmail] = useState<string | null>(null);
   const [sessionChecking, setSessionChecking] = useState(true);
   const [activeTab, setActiveTab] = useState<'my-compliance' | 'admin-console' | 'staff-roster' | 'reports'>('my-compliance');
+  const [firestoreConfirmation, setFirestoreConfirmation] = useState<FirestoreConfirmationDetails | null>(null);
 
   // Verify server session on load (Requirement 4 & 11: Never trust client-only state)
   useEffect(() => {
@@ -85,25 +89,25 @@ export default function Home() {
     };
     window.addEventListener('read_and_sign_data_changed', handleDataChanged);
 
-    // Initial sync with Firebase Firestore for topics and verifications
-    syncTopicsWithFirebase()
+    // Initial sync directly from Firebase Firestore (Zero browser storage policy)
+    syncUsersWithFirebase()
+      .then(remoteUsers => {
+        if (remoteUsers) setUsers(remoteUsers);
+        return syncTopicsWithFirebase(remoteUsers);
+      })
       .then(remoteTopics => {
-        if (remoteTopics) {
-          setTopics(remoteTopics);
-        }
+        if (remoteTopics) setTopics(remoteTopics);
       })
       .catch(err => {
-        console.warn('Firebase initial topics sync notice:', err);
+        console.warn('Firebase initial sync notice:', err);
       });
 
     syncConfirmationsWithFirebase()
       .then(remoteConfs => {
-        if (remoteConfs && remoteConfs.length > 0) {
-          setConfirmations(remoteConfs);
-        }
+        if (remoteConfs) setConfirmations(remoteConfs);
       })
       .catch(err => {
-        console.warn('Firebase initial verifications sync notice:', err);
+        console.warn('Firebase verifications sync notice:', err);
       });
 
     return () => window.removeEventListener('read_and_sign_data_changed', handleDataChanged);
@@ -154,7 +158,7 @@ export default function Home() {
 
 
   // Create new compliance topic
-  const handleCreateTopic = (newTopicData: Omit<Topic, 'id' | 'createdAt'>) => {
+  const handleCreateTopic = async (newTopicData: Omit<Topic, 'id' | 'createdAt'>) => {
     const newTopic: Topic = {
       ...newTopicData,
       id: `top-${Date.now().toString(36)}`,
@@ -162,29 +166,56 @@ export default function Home() {
     };
     const updated = [newTopic, ...topics];
     setTopics(updated);
-    saveTopics(updated);
+    saveTopics(updated, users);
 
-    // Save newly created topic directly to Firebase Firestore
-    saveTopicToFirestore(newTopic).catch(err => {
-      console.warn('Firebase direct topic save notice:', err);
-    });
+    // Identify assigned staff (specifically selected or group eligible)
+    const assignedStaff = users.filter(u => isUserEligibleForTopic(u, newTopic));
+
+    // Save newly created topic and staff assignments to Firebase Firestore
+    try {
+      await saveTopicToFirestore(newTopic, assignedStaff);
+      await saveTopicAssignmentsToFirestore(newTopic, assignedStaff);
+
+      // Trigger Firestore save confirmation pop-up
+      setFirestoreConfirmation({
+        title: 'New Topic & Staff Assignments Saved to Firestore',
+        recordType: 'topic_created',
+        topicTitle: newTopic.title,
+        assignedCount: assignedStaff.length,
+        collections: ['topics', 'topic_assignments'],
+        timestamp: newTopic.createdAt,
+      });
+    } catch (err) {
+      console.warn('Firebase direct topic & assignments save notice:', err);
+    }
   };
 
   // Delete topic
-  const handleDeleteTopic = (topicId: string) => {
+  const handleDeleteTopic = async (topicId: string) => {
+    const topicToDelete = topics.find(t => t.id === topicId);
     const updatedTopics = topics.filter(t => t.id !== topicId);
     const toDeleteConfs = confirmations.filter(c => c.topicId === topicId);
     const updatedConfirmations = confirmations.filter(c => c.topicId !== topicId);
     setTopics(updatedTopics);
     setConfirmations(updatedConfirmations);
-    saveTopics(updatedTopics);
+    saveTopics(updatedTopics, users);
     saveConfirmations(updatedConfirmations);
 
     // Delete topic and its compliance verifications from Firebase Firestore
-    deleteTopicFromFirestore(topicId).catch(err => {
+    try {
+      await deleteTopicFromFirestore(topicId);
+      for (const c of toDeleteConfs) {
+        await deleteVerificationFromFirestore(c.id).catch(() => null);
+      }
+      setFirestoreConfirmation({
+        title: 'Topic & Assignments Removed from Firestore',
+        recordType: 'topic_deleted',
+        topicTitle: topicToDelete?.title || topicId,
+        collections: ['topics', 'topic_assignments'],
+      });
+    } catch (err) {
       console.warn('Firebase topic deletion notice:', err);
-    });
-    toDeleteConfs.forEach(c => deleteVerificationFromFirestore(c.id).catch(() => null));
+    }
   };
 
   // Add staff member
@@ -228,7 +259,7 @@ export default function Home() {
   };
 
   // Record user acknowledgment / Read and sign (Requirement 10)
-  const handleConfirmTopic = (topicId: string, signatureText: string, lateReason?: string) => {
+  const handleConfirmTopic = async (topicId: string, signatureText: string, lateReason?: string) => {
     if (!currentUser) return;
 
     const topic = topics.find(t => t.id === topicId);
@@ -265,14 +296,26 @@ export default function Home() {
     setConfirmations(updated);
     saveConfirmations(updated);
 
-    // Save compliance verification record to Firebase Firestore
-    saveVerificationToFirestore(newConf).catch(err => {
+    // Save compliance verification record directly to Firebase Firestore
+    try {
+      await saveVerificationToFirestore(newConf);
+      // Trigger confirmation pop-up
+      setFirestoreConfirmation({
+        title: 'Compliance Acknowledgment Saved to Firestore',
+        recordType: 'acknowledgment',
+        topicTitle: topic ? topic.title : topicId,
+        userName: currentUser.name,
+        uNumber: currentUser.uNumber,
+        collections: ['compliance_verifications'],
+        timestamp: newConf.confirmedAt,
+      });
+    } catch (err) {
       console.warn('Firebase direct verification save notice:', err);
-    });
+    }
   };
 
   // Admin review handler for late approval (Accept / Reject)
-  const handleUpdateConfirmation = (confirmationId: string, newStatus: 'confirmed' | 'rejected', reviewNote?: string) => {
+  const handleUpdateConfirmation = async (confirmationId: string, newStatus: 'confirmed' | 'rejected', reviewNote?: string) => {
     let targetConf: TopicConfirmation | undefined;
     const updated = confirmations.map(c => {
       if (c.id === confirmationId) {
@@ -293,9 +336,19 @@ export default function Home() {
 
     // Persist reviewed verification update to Firebase Firestore
     if (targetConf) {
-      saveVerificationToFirestore(targetConf).catch(err => {
+      try {
+        await saveVerificationToFirestore(targetConf);
+        setFirestoreConfirmation({
+          title: `Verification Review (${newStatus.toUpperCase()}) Saved to Firestore`,
+          recordType: 'admin_review',
+          topicTitle: targetConf.documentTitle || targetConf.topicId,
+          userName: targetConf.userName,
+          collections: ['compliance_verifications'],
+          timestamp: targetConf.reviewedAt,
+        });
+      } catch (err) {
         console.warn('Firebase direct verification update notice:', err);
-      });
+      }
     }
   };
 
@@ -386,24 +439,24 @@ export default function Home() {
 
           <div className="flex items-center gap-4">
             <span className="font-mono text-[11px] text-slate-400">
-              Station Roster: {users.length} Staff Loaded
+              Station Roster: {users.length} Staff
             </span>
-            <button
-              onClick={() => {
-                if (window.confirm('Reset all demo topics and confirmations back to initial defaults?')) {
-                  resetToDefaults();
-                  setUsers(INITIAL_STAFF_ROSTER);
-                  setTopics(INITIAL_TOPICS);
-                  setConfirmations(generateInitialConfirmations());
-                }
-              }}
-              className="text-slate-400 hover:text-slate-700 underline text-[11px]"
-            >
-              Reset Demo Data
-            </button>
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span>Firestore Connected · Browser Storage Disabled</span>
+            </span>
           </div>
         </div>
       </footer>
+
+      {/* Pop-up confirmation when saving topics, assignments, or acknowledgments to Firestore */}
+      {firestoreConfirmation && (
+        <FirestoreSaveModal
+          key={firestoreConfirmation.timestamp || firestoreConfirmation.title}
+          confirmation={firestoreConfirmation}
+          onClose={() => setFirestoreConfirmation(null)}
+        />
+      )}
     </div>
   );
 }
