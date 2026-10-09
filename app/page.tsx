@@ -14,7 +14,15 @@ import {
   getCurrentUserId,
   setCurrentUserId,
   resetToDefaults,
+  syncConfirmationsWithFirebase,
+  syncTopicsWithFirebase,
 } from '@/lib/compliance-store';
+import {
+  saveVerificationToFirestore,
+  deleteVerificationFromFirestore,
+  saveTopicToFirestore,
+  deleteTopicFromFirestore,
+} from '@/lib/firebase';
 import { GoogleLogin } from '@/components/auth/google-login';
 import { TopBar } from '@/components/navigation/top-bar';
 import { UserDashboard } from '@/components/user/user-dashboard';
@@ -68,7 +76,7 @@ export default function Home() {
     checkServerSession();
   }, []);
 
-  // Listen to external data changes if any
+  // Listen to external data changes if any, and synchronize with Firebase Firestore
   useEffect(() => {
     const handleDataChanged = () => {
       setUsers(getStoredUsers());
@@ -76,6 +84,28 @@ export default function Home() {
       setConfirmations(getStoredConfirmations());
     };
     window.addEventListener('read_and_sign_data_changed', handleDataChanged);
+
+    // Initial sync with Firebase Firestore for topics and verifications
+    syncTopicsWithFirebase()
+      .then(remoteTopics => {
+        if (remoteTopics) {
+          setTopics(remoteTopics);
+        }
+      })
+      .catch(err => {
+        console.warn('Firebase initial topics sync notice:', err);
+      });
+
+    syncConfirmationsWithFirebase()
+      .then(remoteConfs => {
+        if (remoteConfs && remoteConfs.length > 0) {
+          setConfirmations(remoteConfs);
+        }
+      })
+      .catch(err => {
+        console.warn('Firebase initial verifications sync notice:', err);
+      });
+
     return () => window.removeEventListener('read_and_sign_data_changed', handleDataChanged);
   }, []);
 
@@ -133,16 +163,28 @@ export default function Home() {
     const updated = [newTopic, ...topics];
     setTopics(updated);
     saveTopics(updated);
+
+    // Save newly created topic directly to Firebase Firestore
+    saveTopicToFirestore(newTopic).catch(err => {
+      console.warn('Firebase direct topic save notice:', err);
+    });
   };
 
   // Delete topic
   const handleDeleteTopic = (topicId: string) => {
     const updatedTopics = topics.filter(t => t.id !== topicId);
+    const toDeleteConfs = confirmations.filter(c => c.topicId === topicId);
     const updatedConfirmations = confirmations.filter(c => c.topicId !== topicId);
     setTopics(updatedTopics);
     setConfirmations(updatedConfirmations);
     saveTopics(updatedTopics);
     saveConfirmations(updatedConfirmations);
+
+    // Delete topic and its compliance verifications from Firebase Firestore
+    deleteTopicFromFirestore(topicId).catch(err => {
+      console.warn('Firebase topic deletion notice:', err);
+    });
+    toDeleteConfs.forEach(c => deleteVerificationFromFirestore(c.id).catch(() => null));
   };
 
   // Add staff member
@@ -222,24 +264,39 @@ export default function Home() {
 
     setConfirmations(updated);
     saveConfirmations(updated);
+
+    // Save compliance verification record to Firebase Firestore
+    saveVerificationToFirestore(newConf).catch(err => {
+      console.warn('Firebase direct verification save notice:', err);
+    });
   };
 
   // Admin review handler for late approval (Accept / Reject)
   const handleUpdateConfirmation = (confirmationId: string, newStatus: 'confirmed' | 'rejected', reviewNote?: string) => {
+    let targetConf: TopicConfirmation | undefined;
     const updated = confirmations.map(c => {
       if (c.id === confirmationId) {
-        return {
+        const revised: TopicConfirmation = {
           ...c,
           status: newStatus,
           reviewedBy: currentUser?.email,
           reviewedAt: new Date().toISOString(),
           adminReviewNote: reviewNote,
         };
+        targetConf = revised;
+        return revised;
       }
       return c;
     });
     setConfirmations(updated);
     saveConfirmations(updated);
+
+    // Persist reviewed verification update to Firebase Firestore
+    if (targetConf) {
+      saveVerificationToFirestore(targetConf).catch(err => {
+        console.warn('Firebase direct verification update notice:', err);
+      });
+    }
   };
 
   if (!mounted || sessionChecking) {

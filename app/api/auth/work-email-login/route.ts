@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { serverAuthStore } from '@/lib/server-auth-store';
+import { fetchPasswordFromFirestore } from '@/lib/firebase';
 
 export async function POST(req: NextRequest) {
   try {
@@ -55,6 +56,19 @@ export async function POST(req: NextRequest) {
         targetEmail: cleanEmail,
         details: `Created user account for work email ${cleanEmail}`,
       });
+    }
+
+    // Check if password exists in Firebase Firestore if not in memory
+    if (!user.passwordHash) {
+      try {
+        const saved = await fetchPasswordFromFirestore(user.id);
+        if (saved && saved.passwordHash) {
+          user.passwordHash = saved.passwordHash;
+          serverAuthStore.updateUser(user.id, { passwordHash: saved.passwordHash });
+        }
+      } catch (err) {
+        console.warn('Firebase password lookup error:', err);
+      }
     }
 
     // Check if password setup is needed (First sign-in via work email)

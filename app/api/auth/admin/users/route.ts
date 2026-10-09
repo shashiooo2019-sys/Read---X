@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { serverAuthStore } from '@/lib/server-auth-store';
+import { deletePasswordFromFirestore } from '@/lib/firebase';
 
 function getAuthenticatedAdmin(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
@@ -265,6 +266,11 @@ export async function POST(req: NextRequest) {
 
       serverAuthStore.clearPassword(userId);
       serverAuthStore.invalidateAllSessionsForUser(userId);
+      try {
+        await deletePasswordFromFirestore(userId);
+      } catch (err) {
+        console.warn('Firebase password delete warning:', err);
+      }
 
       serverAuthStore.addAuditLog({
         action: 'user_approved',

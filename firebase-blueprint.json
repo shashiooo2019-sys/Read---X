@@ -1,0 +1,99 @@
+{
+  "entities": {
+    "TopicConfirmation": {
+      "title": "TopicConfirmation",
+      "description": "Compliance verification record representing user acknowledgment, signature, and approval status for a topic",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique verification record ID" },
+        "topicId": { "type": "string", "description": "ID of the topic being confirmed" },
+        "documentId": { "type": "string", "description": "Document reference ID" },
+        "documentTitle": { "type": "string", "description": "Title of the confirmed document" },
+        "documentVersion": { "type": "string", "description": "Version of the document when signed" },
+        "userId": { "type": "string", "description": "User ID of the confirming staff member" },
+        "userEmail": { "type": "string", "description": "Email address of the staff member" },
+        "userName": { "type": "string", "description": "Full name of the staff member" },
+        "confirmedAt": { "type": "string", "description": "ISO timestamp of confirmation" },
+        "status": {
+          "type": "string",
+          "enum": ["confirmed", "pending", "re_sign_required", "pending_late_approval", "rejected"],
+          "description": "Compliance status of the confirmation"
+        },
+        "signatureText": { "type": "string", "description": "Digital signature text captured upon acknowledgment" },
+        "ipAddress": { "type": "string", "description": "Network IP recorded at time of signing" },
+        "lateReason": { "type": "string", "description": "Reason provided if confirmed past deadline" },
+        "adminReviewNote": { "type": "string", "description": "Administrator note if late approval reviewed" },
+        "reviewedBy": { "type": "string", "description": "Email of admin who reviewed late approval" },
+        "reviewedAt": { "type": "string", "description": "ISO timestamp of admin review" }
+      },
+      "required": ["id", "topicId", "userId", "confirmedAt", "status"]
+    },
+    "UserPassword": {
+      "title": "UserPassword",
+      "description": "Secure password credential record stored for work email sign-in",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Unique user ID" },
+        "email": { "type": "string", "description": "User work email address" },
+        "uNumber": { "type": "string", "description": "User U-Number identifier" },
+        "passwordHash": { "type": "string", "description": "SHA-256 hashed password with salt" },
+        "updatedAt": { "type": "string", "description": "ISO timestamp of last password update" },
+        "createdAt": { "type": "string", "description": "ISO timestamp of initial password creation" }
+      },
+      "required": ["userId", "email", "passwordHash", "updatedAt"]
+    },
+    "Topic": {
+      "title": "Topic",
+      "description": "Compliance directive, briefing, or document requiring staff read and sign acknowledgment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique topic ID" },
+        "title": { "type": "string", "description": "Topic headline / title" },
+        "type": { "type": "string", "description": "Topic directive type" },
+        "targetGroup": { "type": "string", "description": "Target audience group (ALL, ALS, Lead, ALS_AND_LEAD, CUSTOM)" },
+        "content": { "type": "string", "description": "Topic content / instructions" },
+        "effectiveDate": { "type": "string", "description": "Effective date YYYY-MM-DD" },
+        "dueDate": { "type": "string", "description": "Due date YYYY-MM-DD" },
+        "createdAt": { "type": "string", "description": "ISO timestamp of topic creation" },
+        "createdBy": { "type": "string", "description": "Author of the topic" },
+        "version": { "type": "string", "description": "Document version string" }
+      },
+      "required": ["id", "title", "type", "targetGroup", "content", "effectiveDate", "dueDate", "createdAt", "createdBy"]
+    },
+    "User": {
+      "title": "User",
+      "description": "Staff roster record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "User ID" },
+        "uNumber": { "type": "string", "description": "U-Number" },
+        "name": { "type": "string", "description": "Full staff name" },
+        "email": { "type": "string", "description": "Email address" },
+        "isAls": { "type": "boolean", "description": "ALS role status" },
+        "isLead": { "type": "boolean", "description": "Lead role status" },
+        "isAdmin": { "type": "boolean", "description": "Administrator status - restricted to user admin" },
+        "department": { "type": "string", "description": "Department name" },
+        "title": { "type": "string", "description": "Job title" }
+      },
+      "required": ["id", "uNumber", "name", "email", "isAls", "isLead", "isAdmin"]
+    }
+  },
+  "firestore": {
+    "/compliance_verifications/{verificationId}": {
+      "schema": "TopicConfirmation",
+      "description": "Compliance verifications, acknowledgments and signatures for topics"
+    },
+    "/user_passwords/{userId}": {
+      "schema": "UserPassword",
+      "description": "Secure password hash storage for authenticated users"
+    },
+    "/topics/{topicId}": {
+      "schema": "Topic",
+      "description": "Compliance topics, briefings, and directives"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Staff roster profiles"
+    }
+  }
+}

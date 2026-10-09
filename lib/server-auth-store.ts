@@ -1,6 +1,12 @@
 import crypto from 'crypto';
 import { User, Topic, TopicConfirmation } from './types';
 import { INITIAL_STAFF_ROSTER } from './roster-data';
+import {
+  savePasswordToFirestore,
+  deletePasswordFromFirestore,
+  fetchPasswordFromFirestore,
+  fetchAllPasswordsFromFirestore,
+} from './firebase';
 
 export interface ServerMagicToken {
   tokenHash: string;
@@ -543,13 +549,26 @@ export const serverAuthStore = {
     const user = this.findUserById(userId);
     if (!user) return undefined;
     const passwordHash = this.hashPassword(passwordPlain);
-    return this.updateUser(userId, { passwordHash });
+    const updated = this.updateUser(userId, { passwordHash });
+
+    // Save password hash to Firebase Firestore
+    savePasswordToFirestore(userId, user.email, passwordHash, user.uNumber).catch(err => {
+      console.warn('Firebase password save background notice:', err);
+    });
+
+    return updated;
   },
 
   clearPassword(userId: string): User | undefined {
     const user = this.findUserById(userId);
     if (!user) return undefined;
     const updated = this.updateUser(userId, { passwordHash: undefined });
+
+    // Delete password record from Firebase Firestore
+    deletePasswordFromFirestore(userId).catch(err => {
+      console.warn('Firebase password delete background notice:', err);
+    });
+
     return updated;
   },
 
@@ -558,5 +577,41 @@ export const serverAuthStore = {
     if (!user || !user.passwordHash) return false;
     const inputHash = this.hashPassword(passwordPlain);
     return user.passwordHash === inputHash;
+  },
+
+  async verifyPasswordAsync(userId: string, passwordPlain: string): Promise<boolean> {
+    let user = this.findUserById(userId);
+    if (!user) return false;
+
+    // If not in local memory, check Firebase Firestore for saved password
+    if (!user.passwordHash) {
+      try {
+        const record = await fetchPasswordFromFirestore(userId);
+        if (record && record.passwordHash) {
+          user.passwordHash = record.passwordHash;
+          this.updateUser(userId, { passwordHash: record.passwordHash });
+        }
+      } catch (err) {
+        console.warn('Could not query Firebase for password:', err);
+      }
+    }
+
+    if (!user.passwordHash) return false;
+    const inputHash = this.hashPassword(passwordPlain);
+    return user.passwordHash === inputHash;
+  },
+
+  async syncPasswordsFromFirebase(): Promise<void> {
+    try {
+      const records = await fetchAllPasswordsFromFirestore();
+      for (const [key, record] of records.entries()) {
+        const user = this.findUserById(record.userId) || this.findUserByEmail(record.email);
+        if (user && record.passwordHash) {
+          user.passwordHash = record.passwordHash;
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to sync passwords from Firebase:', err);
+    }
   },
 };

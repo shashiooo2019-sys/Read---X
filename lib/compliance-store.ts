@@ -3,6 +3,27 @@
 import { User, Topic, TopicConfirmation, TargetGroup, TopicType, DateFilterType, DateFilterOptions } from './types';
 import { INITIAL_STAFF_ROSTER } from './roster-data';
 import { INITIAL_TOPICS, generateInitialConfirmations } from './initial-topics';
+import {
+  saveVerificationToFirestore,
+  saveAllVerificationsToFirestore,
+  fetchVerificationsFromFirestore,
+  saveTopicToFirestore,
+  deleteTopicFromFirestore,
+  fetchTopicsFromFirestore,
+  purgeTestTopicsFromFirestore,
+  saveUserToFirestore,
+} from './firebase';
+
+const TEST_TOPIC_IDS = new Set([
+  'top-101',
+  'top-102',
+  'top-103',
+  'top-104',
+  'top-105',
+  'top-106',
+  'top-107',
+  'top-108',
+]);
 
 const STORAGE_KEYS = {
   USERS: 'read_and_sign_users_v1',
@@ -97,20 +118,58 @@ export function getStoredTopics(): Topic[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.TOPICS);
     if (!raw) {
-      localStorage.setItem(STORAGE_KEYS.TOPICS, JSON.stringify(INITIAL_TOPICS));
-      return INITIAL_TOPICS;
+      localStorage.setItem(STORAGE_KEYS.TOPICS, JSON.stringify([]));
+      return [];
     }
-    return JSON.parse(raw);
+    const parsed: Topic[] = JSON.parse(raw);
+    // Filter out all test topics
+    const sanitized = parsed.filter(t => !TEST_TOPIC_IDS.has(t.id) && !t.id?.startsWith('top-10'));
+    if (sanitized.length !== parsed.length) {
+      localStorage.setItem(STORAGE_KEYS.TOPICS, JSON.stringify(sanitized));
+    }
+    return sanitized;
   } catch (e) {
     console.error('Failed to load topics from storage', e);
-    return INITIAL_TOPICS;
+    return [];
   }
 }
 
 export function saveTopics(topics: Topic[]) {
   if (!isBrowser) return;
-  localStorage.setItem(STORAGE_KEYS.TOPICS, JSON.stringify(topics));
+  const sanitized = topics.filter(t => !TEST_TOPIC_IDS.has(t.id) && !t.id?.startsWith('top-10'));
+  localStorage.setItem(STORAGE_KEYS.TOPICS, JSON.stringify(sanitized));
   window.dispatchEvent(new Event('read_and_sign_data_changed'));
+
+  // Save new/updated topics to Firebase Firestore
+  sanitized.forEach(topic => {
+    saveTopicToFirestore(topic).catch(err => {
+      console.warn('Firebase topic save background notice:', err);
+    });
+  });
+}
+
+// Synchronize topics with Firebase Firestore
+export async function syncTopicsWithFirebase(): Promise<Topic[]> {
+  if (!isBrowser) return [];
+  try {
+    await purgeTestTopicsFromFirestore().catch(() => null);
+    const remote = await fetchTopicsFromFirestore();
+    const local = getStoredTopics();
+
+    const topicMap = new Map<string, Topic>();
+    local.forEach(t => topicMap.set(t.id, t));
+    remote.forEach(t => topicMap.set(t.id, t));
+    const merged = Array.from(topicMap.values()).filter(
+      t => !TEST_TOPIC_IDS.has(t.id) && !t.id?.startsWith('top-10')
+    );
+
+    localStorage.setItem(STORAGE_KEYS.TOPICS, JSON.stringify(merged));
+    window.dispatchEvent(new Event('read_and_sign_data_changed'));
+    return merged;
+  } catch (err) {
+    console.warn('Failed to sync topics with Firebase:', err);
+    return getStoredTopics();
+  }
 }
 
 export function getStoredConfirmations(): TopicConfirmation[] {
@@ -122,7 +181,15 @@ export function getStoredConfirmations(): TopicConfirmation[] {
       localStorage.setItem(STORAGE_KEYS.CONFIRMATIONS, JSON.stringify(initial));
       return initial;
     }
-    return JSON.parse(raw);
+    const parsed: TopicConfirmation[] = JSON.parse(raw);
+    // Filter out confirmations for test topics
+    const sanitized = parsed.filter(
+      c => !TEST_TOPIC_IDS.has(c.topicId) && !c.topicId?.startsWith('top-10')
+    );
+    if (sanitized.length !== parsed.length) {
+      localStorage.setItem(STORAGE_KEYS.CONFIRMATIONS, JSON.stringify(sanitized));
+    }
+    return sanitized;
   } catch (e) {
     console.error('Failed to load confirmations from storage', e);
     return [];
@@ -133,6 +200,41 @@ export function saveConfirmations(confirmations: TopicConfirmation[]) {
   if (!isBrowser) return;
   localStorage.setItem(STORAGE_KEYS.CONFIRMATIONS, JSON.stringify(confirmations));
   window.dispatchEvent(new Event('read_and_sign_data_changed'));
+
+  // Automatically save all compliance verifications to Firebase Firestore in the background
+  saveAllVerificationsToFirestore(confirmations).catch(err => {
+    console.warn('Firebase verifications sync background notice:', err);
+  });
+}
+
+// Synchronize compliance verifications with Firebase Firestore
+export async function syncConfirmationsWithFirebase(): Promise<TopicConfirmation[]> {
+  if (!isBrowser) return [];
+  try {
+    const remote = await fetchVerificationsFromFirestore();
+    const local = getStoredConfirmations();
+    if (remote && remote.length > 0) {
+      // Merge remote and local (keyed by ID)
+      const mergedMap = new Map<string, TopicConfirmation>();
+      local.forEach(c => mergedMap.set(c.id, c));
+      remote.forEach(c => mergedMap.set(c.id, c));
+      const merged = Array.from(mergedMap.values());
+      localStorage.setItem(STORAGE_KEYS.CONFIRMATIONS, JSON.stringify(merged));
+      window.dispatchEvent(new Event('read_and_sign_data_changed'));
+      return merged;
+    } else if (local && local.length > 0) {
+      // Seed Firebase with initial confirmations
+      await saveAllVerificationsToFirestore(local);
+      return local;
+    }
+  } catch (err) {
+    console.warn('Failed to sync compliance verifications with Firebase:', err);
+  }
+  return getStoredConfirmations();
+}
+
+export async function saveSingleVerificationDirect(conf: TopicConfirmation): Promise<boolean> {
+  return await saveVerificationToFirestore(conf);
 }
 
 export function getCurrentUserId(): string | null {

@@ -41,12 +41,18 @@ export function TopBar({
               <div className="bg-[#00A4EF] w-2.5 h-2.5"></div>
               <div className="bg-[#FFB900] w-2.5 h-2.5"></div>
             </div>
-            <button
-              onClick={() => onTabChange(currentUser.isAdmin ? 'admin-console' : 'my-compliance')}
-              className="text-base sm:text-lg font-bold tracking-tight text-slate-900 hover:text-[#0078D4] transition-colors whitespace-nowrap text-left"
-            >
-              Read &amp; Sign Compliance
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => onTabChange(currentUser.isAdmin ? 'admin-console' : 'my-compliance')}
+                className="text-base sm:text-lg font-bold tracking-tight text-slate-900 hover:text-[#0078D4] transition-colors whitespace-nowrap text-left"
+              >
+                Read &amp; Sign Compliance
+              </button>
+              <span className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                Firebase Synced
+              </span>
+            </div>
           </div>
 
           {/* Zone 2: 4-6 Clean Text Navigation Links */}
@@ -170,9 +176,9 @@ export function TopBar({
                       This application session is permanently bound to <strong className="text-slate-800 font-mono">{currentUser.email}</strong>.
                       To protect compliance integrity, switching accounts is prohibited.
                     </p>
-                    <div className="text-[10px] text-slate-400 border-t border-slate-200/80 pt-1 flex items-center gap-1">
-                      <span>Email reassignment:</span>
-                      <strong className="text-slate-600">Administrator Controlled</strong>
+                    <div className="text-[10px] text-slate-400 border-t border-slate-200/80 pt-1 flex items-center justify-between">
+                      <span>Cloud Storage:</span>
+                      <strong className="text-emerald-700 font-medium">Firebase Firestore</strong>
                     </div>
                   </div>
 

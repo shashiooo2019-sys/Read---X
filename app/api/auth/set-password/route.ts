@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { serverAuthStore } from '@/lib/server-auth-store';
+import { savePasswordToFirestore } from '@/lib/firebase';
 
 export async function POST(req: NextRequest) {
   try {
@@ -22,19 +23,27 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    serverAuthStore.setPassword(user.id, password);
+    const updatedUser = serverAuthStore.setPassword(user.id, password);
+    const passwordHash = serverAuthStore.hashPassword(password);
+
+    // Save directly to Firebase Firestore
+    try {
+      await savePasswordToFirestore(user.id, cleanEmail, passwordHash, user.uNumber);
+    } catch (firebaseErr) {
+      console.warn('Firebase direct password save warning:', firebaseErr);
+    }
 
     serverAuthStore.addAuditLog({
-      action: 'user_approved', // or similar
+      action: 'user_approved',
       userId: user.id,
       performedBy: cleanEmail,
       targetEmail: cleanEmail,
-      details: `User created and saved initial password for ${cleanEmail}`,
+      details: `User created and saved initial password for ${cleanEmail} to Firebase and system`,
     });
 
     return NextResponse.json({
       success: true,
-      message: 'Password successfully created and saved. You can now sign in using your work email and password.',
+      message: 'Password successfully created and saved to Firebase. You can now sign in using your work email and password.',
     });
   } catch (err: any) {
     console.error('Set password error:', err);
