@@ -278,96 +278,56 @@ export function UserDashboard({
                 </div>
               </button>
 
-              <button
-                type="button"
-                onClick={() => setActiveStatusTab('pending')}
-                className={`text-left p-3.5 rounded-xl shadow-xs transition cursor-pointer border ${
-                  activeStatusTab === 'pending'
-                    ? 'bg-amber-50/70 border-amber-500 ring-2 ring-amber-500/20'
-                    : 'bg-white border-slate-200 hover:border-amber-300 hover:shadow-sm'
-                }`}
-                title="Click to filter topics requiring your acknowledgment"
+              <div
+                className="text-left p-3.5 rounded-xl shadow-xs border bg-white border-slate-200"
               >
                 <div className="flex items-center justify-between text-xs font-medium text-amber-700">
                   <div className="flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
                     <span>Pending Action</span>
                   </div>
-                  {activeStatusTab === 'pending' && (
-                    <span className="text-[10px] bg-amber-600 text-white px-1.5 py-0.2 rounded font-semibold">Active</span>
-                  )}
                 </div>
                 <div className="text-2xl font-bold text-amber-800 mt-1 tabular-nums">{totalPending}</div>
                 <div className="text-[11px] text-amber-700 mt-1 font-medium flex items-center justify-between">
                   <span>Needs signature</span>
-                  <span>↳</span>
                 </div>
-              </button>
+              </div>
 
-              <button
-                type="button"
-                onClick={() => setActiveStatusTab('completed')}
-                className={`text-left p-3.5 rounded-xl shadow-xs transition cursor-pointer border ${
-                  activeStatusTab === 'completed'
-                    ? 'bg-emerald-50/70 border-emerald-500 ring-2 ring-emerald-500/20'
-                    : 'bg-white border-slate-200 hover:border-emerald-300 hover:shadow-sm'
-                }`}
-                title="Click to view already acknowledged directives"
+              <div
+                className="text-left p-3.5 rounded-xl shadow-xs border bg-white border-slate-200"
               >
                 <div className="flex items-center justify-between text-xs font-medium text-emerald-700">
                   <div className="flex items-center gap-1.5">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                     <span>Completed &amp; Signed</span>
                   </div>
-                  {activeStatusTab === 'completed' && (
-                    <span className="text-[10px] bg-emerald-600 text-white px-1.5 py-0.2 rounded font-semibold">Active</span>
-                  )}
                 </div>
                 <div className="text-2xl font-bold text-emerald-800 mt-1 tabular-nums">{totalCompleted}</div>
                 <div className="text-[11px] text-emerald-700 mt-1 font-medium flex items-center justify-between">
                   <span>Signed items</span>
-                  <span>↳</span>
                 </div>
-              </button>
+              </div>
 
-              <button
-                type="button"
-                onClick={() => setActiveStatusTab(activeStatusTab === 'future_planned' ? 'all' : 'future_planned')}
-                className={`text-left p-3.5 rounded-xl shadow-xs transition cursor-pointer border ${
-                  activeStatusTab === 'future_planned'
-                    ? 'bg-purple-50/80 border-purple-500 ring-2 ring-purple-500/20'
-                    : 'bg-white border-slate-200 hover:border-purple-300 hover:shadow-sm'
-                }`}
-                title="Click to view future planned topics scheduled for release"
+              <div
+                className="text-left p-3.5 rounded-xl shadow-xs border bg-white border-slate-200"
               >
                 <div className="flex items-center justify-between text-xs font-medium text-purple-700">
                   <div className="flex items-center gap-1.5">
                     <Calendar className="w-3.5 h-3.5 text-purple-600" />
                     <span>Future Planned</span>
                   </div>
-                  {activeStatusTab === 'future_planned' && (
-                    <span className="text-[10px] bg-purple-600 text-white px-1.5 py-0.2 rounded font-semibold">Active</span>
-                  )}
                 </div>
                 <div className="text-2xl font-bold text-purple-900 mt-1 tabular-nums">{totalFuturePlanned}</div>
                 <div className="text-[11px] text-purple-700 mt-1 font-medium flex items-center justify-between">
                   <span>Upcoming topics</span>
-                  <span>↳</span>
                 </div>
-              </button>
+              </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  if (activeStatusTab === 'pending') setActiveStatusTab('completed');
-                  else setActiveStatusTab('pending');
-                }}
-                className="text-left bg-white border border-slate-200 hover:border-slate-300 rounded-xl p-3.5 shadow-xs transition cursor-pointer hover:shadow-sm"
-                title="Click to toggle between Pending and Completed"
+              <div
+                className="text-left bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs"
               >
                 <div className="flex items-center justify-between text-xs font-medium text-slate-500">
                   <span>Personal Compliance</span>
-                  <span className="text-[10px] text-slate-400">Toggle</span>
                 </div>
                 <div className="text-2xl font-bold text-slate-900 mt-1 tabular-nums">{complianceRate}%</div>
                 <div className="w-full bg-slate-100 h-1.5 rounded-full mt-2 overflow-hidden">
@@ -378,7 +338,7 @@ export function UserDashboard({
                     style={{ width: `${complianceRate}%` }}
                   />
                 </div>
-              </button>
+              </div>
             </div>
           </div>
       </div>

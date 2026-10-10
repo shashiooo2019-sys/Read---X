@@ -7,7 +7,7 @@ import { ShieldCheck, AlertCircle, CheckCircle2, ArrowRight, RefreshCw, Lock } f
 function VerifyMagicLinkContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const token = searchParams.get('token');
+  const token = searchParams?.get('token');
 
   const [status, setStatus] = useState<'verifying' | 'success' | 'error'>(!token ? 'error' : 'verifying');
   const [errorMessage, setErrorMessage] = useState(

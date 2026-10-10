@@ -1,6 +1,8 @@
 import type {Metadata} from 'next';
 import './globals.css'; // Global styles
 
+export const dynamic = 'force-dynamic';
+
 export const metadata: Metadata = {
   title: 'Read & Sign Compliance Management System | M365 Entra ID',
   description: 'Enterprise M365-integrated compliance platform for acknowledging and tracking Read & Sign topics across ALL, ALS, and Lead personnel.',

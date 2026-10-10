@@ -516,93 +516,56 @@ export function AdminConsole({
                 </div>
               </button>
 
-              <button
-                type="button"
-                onClick={() => setStatusFilter(statusFilter === 'fully_completed' ? 'all' : 'fully_completed')}
-                className={`text-left p-3.5 rounded-xl shadow-xs transition cursor-pointer border ${
-                  statusFilter === 'fully_completed'
-                    ? 'bg-emerald-50/70 border-emerald-500 ring-2 ring-emerald-500/20'
-                    : 'bg-white border-slate-200 hover:border-emerald-300 hover:shadow-sm'
-                }`}
-                title="Click to filter topics with 100% staff acknowledgment"
+              <div
+                className="text-left p-3.5 rounded-xl shadow-xs border bg-white border-slate-200"
               >
                 <div className="flex items-center justify-between text-xs font-medium text-emerald-700">
                   <div className="flex items-center gap-1.5">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                     <span>Confirmed Signatures</span>
                   </div>
-                  {statusFilter === 'fully_completed' && (
-                    <span className="text-[10px] bg-emerald-600 text-white px-1.5 py-0.2 rounded font-semibold">Filtered</span>
-                  )}
                 </div>
                 <div className="text-2xl font-bold text-emerald-800 mt-1 tabular-nums">{totalConfirmed}</div>
                 <div className="text-[11px] text-emerald-700 mt-1 font-medium flex items-center justify-between">
-                  <span>{statusFilter === 'fully_completed' ? '100% Complete Only' : 'Filter 100% Complete'}</span>
-                  <span>↳</span>
+                  <span>100% Complete</span>
                 </div>
-              </button>
+              </div>
 
-              <button
-                type="button"
-                onClick={() => setStatusFilter(statusFilter === 'needs_action' ? 'all' : 'needs_action')}
-                className={`text-left p-3.5 rounded-xl shadow-xs transition cursor-pointer border ${
-                  statusFilter === 'needs_action'
-                    ? 'bg-amber-50/70 border-amber-500 ring-2 ring-amber-500/20'
-                    : 'bg-white border-slate-200 hover:border-amber-300 hover:shadow-sm'
-                }`}
-                title="Click to filter topics that have missing staff awaiting signature"
+              <div
+                className="text-left p-3.5 rounded-xl shadow-xs border bg-white border-slate-200"
               >
                 <div className="flex items-center justify-between text-xs font-medium text-amber-700">
                   <div className="flex items-center gap-1.5">
                     <Clock className="w-3.5 h-3.5 text-amber-600" />
                     <span>Missing / Pending Staff</span>
                   </div>
-                  {statusFilter === 'needs_action' && (
-                    <span className="text-[10px] bg-amber-600 text-white px-1.5 py-0.2 rounded font-semibold">Filtered</span>
-                  )}
                 </div>
                 <div className="text-2xl font-bold text-amber-800 mt-1 tabular-nums">{totalMissing}</div>
                 <div className="text-[11px] text-amber-700 mt-1 font-medium flex items-center justify-between">
-                  <span>{statusFilter === 'needs_action' ? 'Pending Action Only' : 'Filter Pending Staff'}</span>
-                  <span>↳</span>
+                  <span>Pending Action</span>
                 </div>
-              </button>
+              </div>
 
-              <button
-                type="button"
-                onClick={() => setStatusFilter(statusFilter === 'future_planned' ? 'all' : 'future_planned')}
-                className={`text-left p-3.5 rounded-xl shadow-xs transition cursor-pointer border ${
-                  statusFilter === 'future_planned'
-                    ? 'bg-purple-50/80 border-purple-500 ring-2 ring-purple-500/20'
-                    : 'bg-white border-slate-200 hover:border-purple-300 hover:shadow-sm'
-                }`}
-                title="Click to filter future planned topics scheduled for upcoming dates"
+              <div
+                className="text-left p-3.5 rounded-xl shadow-xs border bg-white border-slate-200"
               >
                 <div className="flex items-center justify-between text-xs font-medium text-purple-700">
                   <div className="flex items-center gap-1.5">
                     <Calendar className="w-3.5 h-3.5 text-purple-600" />
                     <span>Future Planned Topics</span>
                   </div>
-                  {statusFilter === 'future_planned' && (
-                    <span className="text-[10px] bg-purple-600 text-white px-1.5 py-0.2 rounded font-semibold">Filtered</span>
-                  )}
                 </div>
                 <div className="text-2xl font-bold text-purple-900 mt-1 tabular-nums">{totalFutureTopics}</div>
                 <div className="text-[11px] text-purple-700 mt-1 font-medium flex items-center justify-between">
-                  <span>{statusFilter === 'future_planned' ? 'Viewing Scheduled' : 'Filter Scheduled Topics'}</span>
-                  <span>↳</span>
+                  <span>Scheduled</span>
                 </div>
-              </button>
+              </div>
 
-              <button
-                type="button"
-                onClick={() => setStatusFilter(statusFilter === 'needs_action' ? 'fully_completed' : 'needs_action')}
-                className="text-left bg-white border border-slate-200 hover:border-slate-300 rounded-xl p-3.5 shadow-xs transition cursor-pointer hover:shadow-sm"
-                title="Click to toggle between Pending action vs Completed topics"
+              <div
+                className="text-left bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs"
               >
                 <div className="flex items-center justify-between text-xs font-medium text-slate-500">
                   <span>Overall Station Rate</span>
-                  <span className="text-[10px] text-slate-400">Toggle</span>
                 </div>
                 <div className="text-2xl font-bold text-slate-900 mt-1 tabular-nums">{aggregateRate}%</div>
                 <div className="w-full bg-slate-100 h-1.5 rounded-full mt-2 overflow-hidden">
@@ -613,7 +576,7 @@ export function AdminConsole({
                     style={{ width: `${aggregateRate}%` }}
                   />
                 </div>
-              </button>
+              </div>
             </div>
           </div>
       </div>
