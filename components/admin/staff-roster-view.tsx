@@ -327,9 +327,9 @@ export function StaffRosterView({
         </div>
       </div>
 
-      {/* Clickable Overview Metric Boxes */}
+      {/* Clickable Overview Metric Boxes (Permanently Expanded) */}
       <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs transition">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
           <div className="flex items-center gap-2 flex-wrap">
             <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
               <UserCheck className="w-4 h-4 text-[#0078D4]" />
@@ -349,23 +349,9 @@ export function StaffRosterView({
               Admins: <strong className="text-purple-800">{users.filter(u => u.isAdmin).length}</strong>
             </span>
           </div>
-
-          <button
-            type="button"
-            onClick={() => setShowOverviewMetrics(!showOverviewMetrics)}
-            className="self-start sm:self-auto px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 rounded-lg transition border border-slate-200 flex items-center gap-1.5 shrink-0"
-          >
-            <span>{showOverviewMetrics ? 'Collapse Metrics' : 'Expand Metrics (4)'}</span>
-            {showOverviewMetrics ? (
-              <ChevronUp className="w-3.5 h-3.5 text-slate-500" />
-            ) : (
-              <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
-            )}
-          </button>
         </div>
 
-        {showOverviewMetrics && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4 pt-4 border-t border-slate-100 animate-in fade-in duration-200">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4">
             {/* Box 1: Total Personnel */}
             <button
               type="button"
@@ -476,7 +462,6 @@ export function StaffRosterView({
               </div>
             </button>
           </div>
-        )}
       </div>
 
       {/* Filter and Search Bar */}

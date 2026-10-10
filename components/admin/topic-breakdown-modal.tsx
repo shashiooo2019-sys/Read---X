@@ -13,7 +13,9 @@ import {
   Mail,
   Send,
   UserCheck,
-  UserX
+  UserX,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 
 interface TopicBreakdownModalProps {
@@ -32,6 +34,7 @@ export function TopicBreakdownModal({
   const [activeTab, setActiveTab] = useState<'missing' | 'confirmed' | 'pending_late'>('missing');
   const [searchStaff, setSearchStaff] = useState('');
   const [reminderSentStaff, setReminderSentStaff] = useState<Record<string, boolean>>({});
+  const [isFullscreen, setIsFullscreen] = useState(true);
 
   const todayStr = new Date().toISOString().split('T')[0];
   const isPastDeadline = Boolean(stats.topic.dueDate && stats.topic.dueDate < todayStr);
@@ -99,12 +102,16 @@ export function TopicBreakdownModal({
   });
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full border border-slate-200 overflow-hidden my-8 flex flex-col max-h-[92vh]">
+    <div className={`fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center ${isFullscreen ? 'p-0' : 'p-2 sm:p-4'} overflow-hidden`}>
+      <div className={`bg-white shadow-2xl w-full border border-slate-200 overflow-hidden flex flex-col transition-all duration-200 ${
+        isFullscreen
+          ? 'h-screen w-screen max-w-none max-h-none rounded-none my-0'
+          : 'rounded-xl max-w-4xl my-2 sm:my-8 h-[92vh] max-h-[92vh]'
+      }`}>
         {/* Header */}
-        <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-start justify-between">
+        <div className="px-4 sm:px-6 py-3 sm:py-4 bg-slate-50 border-b border-slate-200 flex items-start justify-between">
           <div className="pr-4">
-            <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+            <div className="flex items-center gap-2 text-xs text-slate-500 mb-1 flex-wrap">
               <span className="font-semibold text-slate-700">{topic.type}</span>
               <span aria-hidden="true">·</span>
               <span>Target: <strong className="text-slate-800">{topic.targetGroup}</strong></span>
@@ -120,7 +127,7 @@ export function TopicBreakdownModal({
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-lg font-bold text-slate-900 leading-snug">{topic.title}</h2>
+              <h2 className="text-base sm:text-lg font-bold text-slate-900 leading-snug">{topic.title}</h2>
               {canCloseForAck && (
                 <button
                   type="button"
@@ -139,91 +146,100 @@ export function TopicBreakdownModal({
               )}
             </div>
           </div>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setIsFullscreen(prev => !prev)}
+              className="text-slate-400 hover:text-slate-700 p-1.5 rounded-md hover:bg-slate-200/60 transition cursor-pointer"
+              title={isFullscreen ? "Minimize to original size" : "Show full screen"}
+            >
+              {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-slate-400 hover:text-slate-700 p-1.5 rounded-md hover:bg-slate-200/60 transition cursor-pointer"
+              title="Close modal"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Executive Interactive Stats & Export bar */}
+        <div className="p-3 sm:p-4 bg-white border-b border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 text-xs">
           <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-700 p-1.5 rounded-md hover:bg-slate-200/60 transition cursor-pointer"
+            type="button"
+            onClick={() => setActiveTab('missing')}
+            className={`text-left p-2.5 rounded-xl transition cursor-pointer border shadow-xs ${
+              activeTab === 'missing'
+                ? 'bg-amber-50/70 border-amber-300 ring-1 ring-amber-300'
+                : 'bg-slate-50/80 border-slate-200 hover:border-slate-300'
+            }`}
+            title="Click to view all missing / pending personnel"
           >
-            <X className="w-5 h-5" />
+            <span className="text-slate-500 block text-[11px]">Eligible Personnel</span>
+            <span className="text-base sm:text-lg font-bold text-slate-900 tabular-nums">{totalEligible}</span>
+            <span className="text-[10px] text-[#0078D4] block mt-0.5">View breakdown ↳</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('confirmed')}
+            className={`text-left p-2.5 rounded-xl transition cursor-pointer border shadow-xs ${
+              activeTab === 'confirmed'
+                ? 'bg-emerald-50/80 border-emerald-300 ring-1 ring-emerald-300'
+                : 'bg-slate-50/80 border-slate-200 hover:border-emerald-200'
+            }`}
+            title="Click to view all confirmed and signed personnel"
+          >
+            <span className="text-emerald-700 block font-medium text-[11px]">Confirmed / Signed</span>
+            <span className="text-base sm:text-lg font-bold text-emerald-800 tabular-nums">{totalConfirmed}</span>
+            <span className="text-[10px] text-emerald-700 block mt-0.5">View signed ↳</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('missing')}
+            className={`text-left p-2.5 rounded-xl transition cursor-pointer border shadow-xs ${
+              activeTab === 'missing'
+                ? 'bg-amber-50/80 border-amber-300 ring-1 ring-amber-300'
+                : 'bg-slate-50/80 border-slate-200 hover:border-amber-200'
+            }`}
+            title="Click to view all missing / pending staff awaiting signature"
+          >
+            <span className="text-amber-700 block font-medium text-[11px]">Missing / Pending</span>
+            <span className="text-base sm:text-lg font-bold text-amber-800 tabular-nums">{totalMissing}</span>
+            <span className="text-[10px] text-amber-700 block mt-0.5">View missing ↳</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('pending_late')}
+            className={`text-left p-2.5 rounded-xl transition cursor-pointer border shadow-xs ${
+              activeTab === 'pending_late'
+                ? 'bg-blue-50/80 border-blue-300 ring-1 ring-blue-300'
+                : 'bg-slate-50/80 border-slate-200 hover:border-blue-200'
+            }`}
+            title="Click to view pending late review submissions"
+          >
+            <span className="text-blue-700 block font-medium text-[11px]">Late Review</span>
+            <span className="text-base sm:text-lg font-bold text-blue-800 tabular-nums">{totalPendingLate}</span>
+            <span className="text-[10px] text-blue-700 block mt-0.5">View late review ↳</span>
           </button>
         </div>
 
-        {/* Executive Stats & Export bar */}
-        <div className="p-4 bg-white border-b border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-          <div>
-            <span className="text-slate-500 block">Eligible Personnel:</span>
-            <span className="text-lg font-bold text-slate-900 tabular-nums">{totalEligible}</span>
-          </div>
-          <div>
-            <span className="text-emerald-700 block font-medium">Confirmed / Signed:</span>
-            <span className="text-lg font-bold text-emerald-800 tabular-nums">{totalConfirmed}</span>
-          </div>
-          <div>
-            <span className="text-amber-700 block font-medium">Missing / Pending:</span>
-            <span className="text-lg font-bold text-amber-800 tabular-nums">{totalMissing}</span>
-          </div>
-          <div className="flex flex-col justify-center">
-            <div className="flex items-center justify-between text-slate-600 mb-1">
-              <span>Progress:</span>
-              <span className="font-bold tabular-nums">{completionRate}%</span>
-            </div>
-            <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-              <div
-                className={`h-full transition-all duration-300 ${
-                  completionRate === 100
-                    ? 'bg-emerald-500'
-                    : completionRate >= 50
-                    ? 'bg-[#0078D4]'
-                    : 'bg-amber-500'
-                }`}
-                style={{ width: `${completionRate}%` }}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Tab switcher, Search & Export Actions */}
-        <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-          {/* Segmented Tab */}
-          <div className="flex items-center gap-1 p-1 bg-slate-200/60 rounded-lg self-start">
-            <button
-              onClick={() => setActiveTab('missing')}
-              className={`px-3 py-1.5 font-medium rounded-md transition-colors flex items-center gap-1.5 ${
-                activeTab === 'missing'
-                  ? 'bg-white text-slate-900 shadow-xs font-semibold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <UserX className="w-3.5 h-3.5 text-amber-600" />
-              <span>Missing / Pending Staff ({totalMissing})</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('confirmed')}
-              className={`px-3 py-1.5 font-medium rounded-md transition-colors flex items-center gap-1.5 ${
-                activeTab === 'confirmed'
-                  ? 'bg-white text-slate-900 shadow-xs font-semibold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Confirmed Staff ({totalConfirmed})</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('pending_late')}
-              className={`px-3 py-1.5 font-medium rounded-md transition-colors flex items-center gap-1.5 ${
-                activeTab === 'pending_late'
-                  ? 'bg-white text-slate-900 shadow-xs font-semibold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Clock className="w-3.5 h-3.5 text-blue-600" />
-              <span>Pending Late Review ({totalPendingLate})</span>
-            </button>
+        {/* Streamlined Search Bar & Actions */}
+        <div className="px-4 py-3 bg-white border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="text-slate-600 font-medium flex items-center gap-2">
+            <span>Currently viewing:</span>
+            <span className="font-bold text-[#0078D4] capitalize bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+              {activeTab === 'missing' ? `Missing / Pending (${totalMissing})` : activeTab === 'confirmed' ? `Confirmed / Signed (${totalConfirmed})` : `Late Review (${totalPendingLate})`}
+            </span>
           </div>
 
           {/* Search & Actions */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
             <div className="relative w-48 sm:w-60">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
               <input
@@ -257,7 +273,7 @@ export function TopicBreakdownModal({
         </div>
 
         {/* Staff Table */}
-        <div className="p-0 overflow-y-auto flex-1 max-h-[50vh]">
+        <div className="p-0 overflow-y-auto flex-1">
           {activeTab === 'missing' && (
             <table className="w-full text-left text-xs border-collapse">
               <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 sticky top-0">

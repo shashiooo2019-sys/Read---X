@@ -228,14 +228,10 @@ export function UserDashboard({
         )}
       </div>
 
-      {/* Metrics Row - Clickable Filter Boxes (Collapsible, default collapsed) */}
+      {/* Metrics Row - Clickable Filter Boxes (Permanently Expanded) */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden transition">
-        {/* Collapsible Header */}
-        <button
-          type="button"
-          onClick={() => setShowOverviewMetrics(prev => !prev)}
-          className="w-full p-4 flex flex-wrap items-center justify-between gap-3 text-left hover:bg-slate-50/80 transition cursor-pointer"
-        >
+        {/* Non-collapsible Header */}
+        <div className="p-4 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 border-b border-slate-100">
           <div className="flex items-center gap-2.5">
             <div className="p-1.5 rounded-lg bg-blue-50 text-[#0078D4]">
               <BarChart2 className="w-4 h-4" />
@@ -243,9 +239,6 @@ export function UserDashboard({
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-xs sm:text-sm font-bold text-slate-900">Personal Compliance Overview</span>
-                <span className="text-[11px] px-2 py-0.5 rounded-full font-medium bg-slate-100 text-slate-600 border border-slate-200">
-                  {showOverviewMetrics ? '5 Metric Cards' : 'Collapsed'}
-                </span>
                 {activeStatusTab !== 'pending' && (
                   <span className="text-[11px] px-2 py-0.5 rounded-full font-bold bg-[#0078D4] text-white">
                     Tab: {activeStatusTab}
@@ -253,29 +246,15 @@ export function UserDashboard({
                 )}
               </div>
               <p className="text-[11px] text-slate-500 mt-0.5">
-                {showOverviewMetrics
-                  ? 'Click any metric card below to filter your assigned topics'
-                  : `Summary: ${totalAssigned} Assigned · ${totalPending} Pending · ${totalCompleted} Signed · ${totalFuturePlanned} Scheduled · ${complianceRate}% Compliance Rate`}
+                Click any metric card below to filter your assigned topics
               </p>
             </div>
           </div>
+        </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-[#0078D4]">
-              {showOverviewMetrics ? 'Collapse Overview' : 'Expand Metrics (5)'}
-            </span>
-            <ChevronDown
-              className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${
-                showOverviewMetrics ? 'rotate-180' : ''
-              }`}
-            />
-          </div>
-        </button>
-
-        {/* Collapsible Body */}
-        {showOverviewMetrics && (
-          <div className="p-4 pt-0 border-t border-slate-100">
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-4">
+        {/* Permanently Expanded Body */}
+        <div className="p-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               <button
                 type="button"
                 onClick={() => setActiveStatusTab('all')}
@@ -402,7 +381,6 @@ export function UserDashboard({
               </button>
             </div>
           </div>
-        )}
       </div>
 
       {/* Filter and Tab Controls (Collapsible, default collapsed) */}

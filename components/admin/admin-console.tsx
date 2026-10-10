@@ -466,14 +466,10 @@ export function AdminConsole({
         )}
       </div>
 
-      {/* Aggregate Overview Metrics - Clickable Filter Boxes (Collapsible, default collapsed) */}
+      {/* Aggregate Overview Metrics - Clickable Filter Boxes (Permanently Expanded) */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden transition">
-        {/* Collapsible Header */}
-        <button
-          type="button"
-          onClick={() => setShowOverviewMetrics(prev => !prev)}
-          className="w-full p-4 flex flex-wrap items-center justify-between gap-3 text-left hover:bg-slate-50/80 transition cursor-pointer"
-        >
+        {/* Non-collapsible Header */}
+        <div className="p-4 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 border-b border-slate-100">
           <div className="flex items-center gap-2.5">
             <div className="p-1.5 rounded-lg bg-blue-50 text-[#0078D4]">
               <BarChart2 className="w-4 h-4" />
@@ -481,9 +477,6 @@ export function AdminConsole({
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-xs sm:text-sm font-bold text-slate-900">Compliance Overview &amp; Station Metrics</span>
-                <span className="text-[11px] px-2 py-0.5 rounded-full font-medium bg-slate-100 text-slate-600 border border-slate-200">
-                  {showOverviewMetrics ? '5 Metric Cards' : 'Collapsed'}
-                </span>
                 {statusFilter !== 'all' && (
                   <span className="text-[11px] px-2 py-0.5 rounded-full font-bold bg-[#0078D4] text-white">
                     Filter: {statusFilter}
@@ -491,29 +484,15 @@ export function AdminConsole({
                 )}
               </div>
               <p className="text-[11px] text-slate-500 mt-0.5">
-                {showOverviewMetrics
-                  ? 'Click any metric card below to filter compliance topics'
-                  : `Quick Summary: ${totalActiveTopics} Active · ${totalConfirmed} Confirmed · ${totalMissing} Pending · ${totalFutureTopics} Scheduled · ${aggregateRate}% Station Rate`}
+                Click any metric card below to filter compliance topics
               </p>
             </div>
           </div>
+        </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-[#0078D4]">
-              {showOverviewMetrics ? 'Collapse Overview' : 'Expand Metrics (5)'}
-            </span>
-            <ChevronDown
-              className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${
-                showOverviewMetrics ? 'rotate-180' : ''
-              }`}
-            />
-          </div>
-        </button>
-
-        {/* Collapsible Body */}
-        {showOverviewMetrics && (
-          <div className="p-4 pt-0 border-t border-slate-100">
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-4">
+        {/* Permanently Expanded Body */}
+        <div className="p-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               <button
                 type="button"
                 onClick={() => setStatusFilter('all')}
@@ -637,7 +616,6 @@ export function AdminConsole({
               </button>
             </div>
           </div>
-        )}
       </div>
 
       {/* COMPREHENSIVE FILTER SYSTEM (Collapsible, default collapsed) */}
