@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { serverAuthStore } from '@/lib/server-auth-store';
-import { savePasswordToFirestore } from '@/lib/firebase';
+import { savePasswordToFirestore, fetchUsersFromFirestore } from '@/lib/firebase';
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,11 +14,23 @@ export async function POST(req: NextRequest) {
     }
 
     const cleanEmail = email.trim().toLowerCase();
-    const user = serverAuthStore.findUserByEmail(cleanEmail);
+    let user = serverAuthStore.findUserByEmail(cleanEmail);
+
+    if (!user) {
+      try {
+        const firestoreUsers = await fetchUsersFromFirestore();
+        if (firestoreUsers && firestoreUsers.length > 0) {
+          serverAuthStore.syncRosterUsers(firestoreUsers);
+          user = serverAuthStore.findUserByEmail(cleanEmail);
+        }
+      } catch (dbErr) {
+        console.warn('Firestore live roster sync notice in set-password:', dbErr);
+      }
+    }
 
     if (!user) {
       return NextResponse.json(
-        { success: false, message: 'User account not found for this email address.' },
+        { success: false, message: 'User account not found for this email address in the staff roster.' },
         { status: 404 }
       );
     }

@@ -144,15 +144,25 @@ function initStore(): GlobalStoreState {
 
   // Ensure default approved private users exist in roster
   for (const appr of defaultApprovedPrivateUsers) {
-    const exists = users.find(u => u.email.toLowerCase() === appr.loginEmail.toLowerCase());
-    if (!exists) {
+    const existing = users.find(
+      u =>
+        u.uNumber?.trim().toUpperCase() === appr.uNumber.trim().toUpperCase() ||
+        u.email?.trim().toLowerCase() === appr.workEmail.trim().toLowerCase() ||
+        u.email?.trim().toLowerCase() === appr.loginEmail.trim().toLowerCase()
+    );
+    if (existing) {
+      existing.loginEmail = appr.loginEmail.trim().toLowerCase();
+      existing.workEmail = appr.workEmail.trim().toLowerCase();
+      existing.isApprovedPrivateEmail = true;
+      existing.approvalStatus = 'approved';
+    } else {
       users.push({
         id: `u-${appr.uNumber.toLowerCase()}`,
         uNumber: appr.uNumber,
         name: appr.name,
-        email: appr.loginEmail,
-        workEmail: appr.workEmail,
-        loginEmail: appr.loginEmail,
+        email: appr.loginEmail.trim().toLowerCase(),
+        workEmail: appr.workEmail.trim().toLowerCase(),
+        loginEmail: appr.loginEmail.trim().toLowerCase(),
         isAls: true,
         isLead: true,
         isAdmin: false,
@@ -251,14 +261,92 @@ export const serverAuthStore = {
     return store.users;
   },
 
+  syncRosterUsers(roster: User[]): void {
+    if (!Array.isArray(roster) || roster.length === 0) return;
+    for (const r of roster) {
+      if (!r || !r.email) continue;
+      const cleanEmail = r.email.trim().toLowerCase();
+      const cleanUNum = r.uNumber?.trim().toUpperCase();
+
+      const idx = store.users.findIndex(
+        u =>
+          (u.id && r.id && u.id === r.id) ||
+          (cleanUNum && u.uNumber?.trim().toUpperCase() === cleanUNum) ||
+          u.email?.trim().toLowerCase() === cleanEmail ||
+          u.loginEmail?.trim().toLowerCase() === cleanEmail ||
+          u.workEmail?.trim().toLowerCase() === cleanEmail
+      );
+
+      if (idx >= 0) {
+        store.users[idx] = {
+          ...store.users[idx],
+          ...r,
+          email: cleanEmail,
+          loginEmail: store.users[idx].loginEmail || cleanEmail,
+          workEmail: store.users[idx].workEmail || cleanEmail,
+          isAdmin: isUserAdminAccount(r),
+        };
+      } else {
+        const newUser: User = {
+          department: 'Ground Operations',
+          title: 'Station Operations Specialist',
+          accountStatus: 'active',
+          approvalStatus: 'approved',
+          ...r,
+          id: r.id || `u-${cleanUNum ? cleanUNum.toLowerCase() : Date.now().toString(36)}`,
+          email: cleanEmail,
+          loginEmail: cleanEmail,
+          workEmail: cleanEmail,
+          isAls: r.isAls ?? false,
+          isLead: r.isLead ?? false,
+          isAdmin: isUserAdminAccount(r),
+        };
+        store.users.push(newUser);
+      }
+    }
+  },
+
   findUserByEmail(email: string): User | undefined {
     const clean = email.trim().toLowerCase();
-    return store.users.find(
+    // 1. Direct match on email, loginEmail, or workEmail
+    let user = store.users.find(
       u =>
-        u.email.toLowerCase() === clean ||
-        u.loginEmail?.toLowerCase() === clean ||
-        u.workEmail?.toLowerCase() === clean
+        u.email?.trim().toLowerCase() === clean ||
+        u.loginEmail?.trim().toLowerCase() === clean ||
+        u.workEmail?.trim().toLowerCase() === clean
     );
+    if (user) return user;
+
+    // 2. Check if clean matches a U-number (e.g. "U086936" or "u086936")
+    const uMatch = clean.match(/^(u\d+)/i);
+    if (uMatch) {
+      const uNum = uMatch[1].toUpperCase();
+      user = store.users.find(u => u.uNumber?.trim().toUpperCase() === uNum);
+      if (user) return user;
+    }
+
+    // 3. Check for .sp variants (e.g. u123456.sp@lhgroup.de -> u123456@lhgroup.de or vice versa)
+    if (clean.includes('.sp@')) {
+      const withoutSp = clean.replace('.sp@', '@');
+      user = store.users.find(
+        u =>
+          u.email?.trim().toLowerCase() === withoutSp ||
+          u.loginEmail?.trim().toLowerCase() === withoutSp ||
+          u.workEmail?.trim().toLowerCase() === withoutSp
+      );
+      if (user) return user;
+    } else if (clean.includes('@')) {
+      const withSp = clean.replace('@', '.sp@');
+      user = store.users.find(
+        u =>
+          u.email?.trim().toLowerCase() === withSp ||
+          u.loginEmail?.trim().toLowerCase() === withSp ||
+          u.workEmail?.trim().toLowerCase() === withSp
+      );
+      if (user) return user;
+    }
+
+    return undefined;
   },
 
   findUserByUNumber(uNumber: string): User | undefined {

@@ -209,13 +209,27 @@ export function setM365Session(session: { email: string; loggedInAt: string; tok
   inMemoryM365Session = session;
 }
 
-export const APP_REFERENCE_DATE = '2026-10-08';
+export function getSystemDateString(d: Date = new Date()): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
-// Check if a topic has a future published date (not yet active)
-export function isTopicFuturePlanned(topic: Topic, todayDate: string = APP_REFERENCE_DATE): boolean {
+export const APP_REFERENCE_DATE = getSystemDateString();
+
+// Check if a topic has a future published date (not yet active), calculated from system date
+export function isTopicFuturePlanned(topic: Topic, todayDate: string = getSystemDateString()): boolean {
   const pubDate = topic.publishedDate || topic.effectiveDate;
   if (!pubDate) return false;
   return pubDate > todayDate;
+}
+
+// Check if a topic has a past published date (backdated publication), calculated from system date
+export function isTopicPastPublished(topic: Topic, todayDate: string = getSystemDateString()): boolean {
+  const pubDate = topic.publishedDate || topic.effectiveDate;
+  if (!pubDate) return false;
+  return pubDate < todayDate;
 }
 
 // Target group eligibility logic:
@@ -245,7 +259,7 @@ export function getUserAssignedTopics(user: User, topics: Topic[]): Topic[] {
   return topics.filter(t => isUserEligibleForTopic(user, t));
 }
 
-export type UserTopicStatus = 'confirmed' | 're_sign_required' | 'pending' | 'pending_late_approval' | 'rejected';
+export type UserTopicStatus = 'confirmed' | 're_sign_required' | 'pending' | 'pending_late_approval' | 'rejected' | 'not_participated';
 
 export function isTopicOverdue(topic: Topic, todayDate?: string): boolean {
   if (topic.isClosed) return false;
@@ -274,14 +288,18 @@ export function getUserTopicStatus(topic: Topic, userId: string, confirmations: 
   if (conf) {
     if (conf.status === 'pending_late_approval') return 'pending_late_approval';
     if (conf.status === 'rejected') return 'rejected';
+    if (conf.status === 'not_participated') return 'not_participated';
     // If version has changed since confirmation: Re-sign required (unless closed)
     if (topic.version && conf.documentVersion && conf.documentVersion !== topic.version && !topic.isClosed) {
       return 're_sign_required';
     }
     return conf.status === 'confirmed' ? 'confirmed' : 'pending';
   }
-  // If topic was closed for acknowledgement by Admin (Trainings, Briefings, Role Plays), participation is verified & confirmed:
+  // If topic was closed for acknowledgement by Admin:
   if (topic.isClosed) {
+    if (topic.closedOption === 'mark_not_participated') {
+      return 'not_participated';
+    }
     return 'confirmed';
   }
   return 'pending';
@@ -296,11 +314,19 @@ export function isTopicConfirmedByUser(
   const topicId = typeof topicOrId === 'string' ? topicOrId : topicOrId.id;
   const topicVersion = typeof topicOrId === 'string' ? undefined : topicOrId.version;
   const isClosed = typeof topicOrId === 'string' ? false : Boolean(topicOrId.isClosed);
+  const closedOption = typeof topicOrId === 'string' ? undefined : topicOrId.closedOption;
 
-  if (isClosed) return true;
+  const conf = confirmations.find(c => c.topicId === topicId && c.userId === userId);
 
-  const conf = confirmations.find(c => c.topicId === topicId && c.userId === userId && c.status === 'confirmed');
-  if (!conf) return false;
+  if (isClosed) {
+    if (conf?.status === 'not_participated') return false;
+    if (closedOption === 'mark_not_participated' && (!conf || conf.status !== 'confirmed')) {
+      return false;
+    }
+    return true;
+  }
+
+  if (!conf || conf.status !== 'confirmed') return false;
 
   // If topic version was provided and does not match signed version, re-sign is required
   if (topicVersion && conf.documentVersion && conf.documentVersion !== topicVersion) {
@@ -327,12 +353,14 @@ export interface TopicComplianceStats {
   reSignRequiredStaff: { user: User; confirmation: TopicConfirmation }[];
   pendingLateStaff: { user: User; confirmation: TopicConfirmation }[];
   rejectedStaff: { user: User; confirmation: TopicConfirmation }[];
+  notParticipatedStaff: { user: User; confirmation?: TopicConfirmation }[];
   totalEligible: number;
   totalConfirmed: number;
   totalMissing: number;
   totalReSignRequired: number;
   totalPendingLate: number;
   totalRejected: number;
+  totalNotParticipated: number;
   completionRate: number; // 0 to 100
 }
 
@@ -346,6 +374,7 @@ export function calculateTopicStats(
   const confirmedMap = new Map<string, TopicConfirmation>();
   const pendingLateMap = new Map<string, TopicConfirmation>();
   const rejectedMap = new Map<string, TopicConfirmation>();
+  const notParticipatedMap = new Map<string, TopicConfirmation>();
 
   confirmations
     .filter(c => c.topicId === topic.id)
@@ -353,6 +382,7 @@ export function calculateTopicStats(
       if (c.status === 'confirmed') confirmedMap.set(c.userId, c);
       else if (c.status === 'pending_late_approval') pendingLateMap.set(c.userId, c);
       else if (c.status === 'rejected') rejectedMap.set(c.userId, c);
+      else if (c.status === 'not_participated') notParticipatedMap.set(c.userId, c);
     });
 
   const confirmedStaff: { user: User; confirmation: TopicConfirmation }[] = [];
@@ -360,11 +390,13 @@ export function calculateTopicStats(
   const reSignRequiredStaff: { user: User; confirmation: TopicConfirmation }[] = [];
   const pendingLateStaff: { user: User; confirmation: TopicConfirmation }[] = [];
   const rejectedStaff: { user: User; confirmation: TopicConfirmation }[] = [];
+  const notParticipatedStaff: { user: User; confirmation?: TopicConfirmation }[] = [];
 
   eligibleStaff.forEach(u => {
     const conf = confirmedMap.get(u.id);
     const pendingConf = pendingLateMap.get(u.id);
     const rejConf = rejectedMap.get(u.id);
+    const notPartConf = notParticipatedMap.get(u.id);
 
     if (conf) {
       if (topic.version && conf.documentVersion && conf.documentVersion !== topic.version) {
@@ -373,6 +405,8 @@ export function calculateTopicStats(
       } else {
         confirmedStaff.push({ user: u, confirmation: conf });
       }
+    } else if (notPartConf) {
+      notParticipatedStaff.push({ user: u, confirmation: notPartConf });
     } else if (pendingConf) {
       pendingLateStaff.push({ user: u, confirmation: pendingConf });
       missingStaff.push(u);
@@ -385,26 +419,39 @@ export function calculateTopicStats(
   });
 
   if (topic.isClosed) {
-    eligibleStaff.forEach(u => {
-      const alreadyConfirmed = confirmedStaff.some(c => c.user.id === u.id);
-      if (!alreadyConfirmed) {
-        const autoConf: TopicConfirmation = {
-          id: `conf-${topic.id}-${u.id}`,
-          topicId: topic.id,
-          userId: u.id,
-          userName: u.name,
-          userEmail: u.email,
-          confirmedAt: topic.closedAt || new Date().toISOString(),
-          status: 'confirmed',
-          signatureText: 'Participation Verified by Admin (Closed Session)',
-          adminReviewNote: 'Participation verified & confirmed upon admin closeout',
-        };
-        confirmedStaff.push({ user: u, confirmation: autoConf });
-      }
-    });
-    missingStaff.length = 0;
-    reSignRequiredStaff.length = 0;
-    pendingLateStaff.length = 0;
+    if (topic.closedOption === 'mark_not_participated') {
+      // Missing staff are designated as Not Participated
+      missingStaff.forEach(u => {
+        if (!notParticipatedStaff.some(np => np.user.id === u.id)) {
+          notParticipatedStaff.push({ user: u });
+        }
+      });
+      missingStaff.length = 0;
+      reSignRequiredStaff.length = 0;
+      pendingLateStaff.length = 0;
+    } else {
+      // Default: mark remaining staff as participated
+      eligibleStaff.forEach(u => {
+        const alreadyConfirmed = confirmedStaff.some(c => c.user.id === u.id);
+        if (!alreadyConfirmed) {
+          const autoConf: TopicConfirmation = {
+            id: `conf-${topic.id}-${u.id}`,
+            topicId: topic.id,
+            userId: u.id,
+            userName: u.name,
+            userEmail: u.email,
+            confirmedAt: topic.closedAt || new Date().toISOString(),
+            status: 'confirmed',
+            signatureText: 'Participation Verified by Admin (Closed Session)',
+            adminReviewNote: 'Participation verified & confirmed upon admin closeout',
+          };
+          confirmedStaff.push({ user: u, confirmation: autoConf });
+        }
+      });
+      missingStaff.length = 0;
+      reSignRequiredStaff.length = 0;
+      pendingLateStaff.length = 0;
+    }
   }
 
   const totalEligible = eligibleStaff.length;
@@ -413,6 +460,7 @@ export function calculateTopicStats(
   const totalReSignRequired = reSignRequiredStaff.length;
   const totalPendingLate = pendingLateStaff.length;
   const totalRejected = rejectedStaff.length;
+  const totalNotParticipated = notParticipatedStaff.length;
   const completionRate = totalEligible > 0 ? Math.round((totalConfirmed / totalEligible) * 100) : 0;
 
   return {
@@ -423,12 +471,14 @@ export function calculateTopicStats(
     reSignRequiredStaff,
     pendingLateStaff,
     rejectedStaff,
+    notParticipatedStaff,
     totalEligible,
     totalConfirmed,
     totalMissing,
     totalReSignRequired,
     totalPendingLate,
     totalRejected,
+    totalNotParticipated,
     completionRate,
   };
 }
@@ -472,7 +522,7 @@ export function matchesDateFilter(
   filterOptions: DateFilterOptions | DateFilterType,
   customStart?: string,
   customEnd?: string,
-  referenceDate: Date = new Date(2026, 9, 7) // October 7, 2026
+  referenceDate: Date = new Date()
 ): boolean {
   const opts: DateFilterOptions =
     typeof filterOptions === 'string'

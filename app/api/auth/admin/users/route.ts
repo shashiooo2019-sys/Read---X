@@ -282,6 +282,19 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // 7. SYNC ROSTER (Ensure in-memory auth store is in sync with latest staff roster)
+    if (action === 'sync_roster') {
+      const { roster } = body;
+      if (Array.isArray(roster)) {
+        serverAuthStore.syncRosterUsers(roster);
+      }
+      return NextResponse.json({
+        success: true,
+        message: 'Staff roster successfully synchronized with authentication store.',
+        totalUsers: serverAuthStore.getUsers().length,
+      });
+    }
+
     return NextResponse.json({ error: 'UNKNOWN_ACTION', message: `Action ${action} is not supported.` }, { status: 400 });
   } catch (error) {
     console.error('Admin POST error:', error);

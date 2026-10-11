@@ -44,6 +44,8 @@ export interface ApprovedUser {
   notes?: string;
 }
 
+export type TopicCloseOption = 'mark_participated' | 'mark_not_participated';
+
 export interface Topic {
   id: string;
   title: string;
@@ -64,6 +66,7 @@ export interface Topic {
   closedAt?: string; // ISO string
   closedBy?: string; // Admin user email
   closedReason?: string;
+  closedOption?: TopicCloseOption;
 }
 
 export interface TopicAssignment {
@@ -79,7 +82,7 @@ export interface TopicAssignment {
   isIndividuallySelected: boolean;
   assignedAt: string; // ISO timestamp
   dueDate: string; // YYYY-MM-DD
-  status: 'assigned' | 'confirmed' | 'pending';
+  status: 'assigned' | 'confirmed' | 'pending' | 'not_participated';
   // Staff qualifications and attributes
   isAls?: boolean;
   isLead?: boolean;
@@ -96,7 +99,7 @@ export interface TopicConfirmation {
   userEmail?: string;
   userName?: string;
   confirmedAt: string; // ISO string
-  status: 'confirmed' | 'pending' | 're_sign_required' | 'pending_late_approval' | 'rejected';
+  status: 'confirmed' | 'pending' | 're_sign_required' | 'pending_late_approval' | 'rejected' | 'not_participated';
   signatureText?: string;
   ipAddress?: string;
   lateReason?: string; // Remark explaining delay in acknowledgment

@@ -2,89 +2,99 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper functions
-    function isValidId(id) {
-      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-\\.]+$');
-    }
+    // Global helpers
+    function isValidId(id) { return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-\\.]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isSignedIn() { return request.auth != null; }
 
-    function incoming() {
-      return request.resource.data;
-    }
-
-    function existing() {
-      return resource.data;
-    }
-
-    // Default deny catch-all
+    // Default deny
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Test connection doc
-    match /test/{docId} {
-      allow read, write: if true;
-    }
-
-    // Compliance verifications (confirmations, signatures, acknowledgments)
+    // Collections
     match /compliance_verifications/{verificationId} {
+      function isValidVerification(data) {
+        return data.keys().hasAll(['id', 'topicId', 'userId', 'confirmedAt', 'status'])
+          && data.id is string && data.id.size() <= 128
+          && data.topicId is string && data.topicId.size() <= 128
+          && data.userId is string && data.userId.size() <= 128
+          && data.confirmedAt is string && data.confirmedAt.size() <= 64
+          && data.status in ['confirmed', 'pending', 're_sign_required', 'pending_late_approval', 'rejected', 'not_participated'];
+      }
       allow get: if isValidId(verificationId);
-      allow list: if true;
-      allow create: if isValidId(verificationId)
-        && incoming().keys().hasAll(['id', 'topicId', 'userId', 'confirmedAt', 'status'])
-        && incoming().id is string && incoming().id.size() <= 128
-        && incoming().topicId is string && incoming().topicId.size() <= 128
-        && incoming().userId is string && incoming().userId.size() <= 128
-        && incoming().confirmedAt is string && incoming().confirmedAt.size() <= 64
-        && incoming().status in ['confirmed', 'pending', 're_sign_required', 'pending_late_approval', 'rejected'];
-      allow update: if isValidId(verificationId)
-        && incoming().keys().hasAll(['id', 'topicId', 'userId', 'confirmedAt', 'status'])
-        && incoming().status in ['confirmed', 'pending', 're_sign_required', 'pending_late_approval', 'rejected'];
+      allow list: if isSignedIn();
+      allow create: if isValidId(verificationId) && isValidVerification(incoming());
+      allow update: if isValidId(verificationId) 
+        && isValidVerification(incoming())
+        && incoming().id == existing().id
+        && incoming().topicId == existing().topicId
+        && incoming().userId == existing().userId;
       allow delete: if isValidId(verificationId);
     }
 
-    // User passwords (stored password hashes)
     match /user_passwords/{userId} {
+      function isValidPassword(data) {
+        return data.keys().hasAll(['userId', 'email', 'passwordHash', 'updatedAt'])
+          && data.userId is string && data.userId.size() <= 128
+          && data.email is string && data.email.size() <= 256
+          && data.passwordHash is string && data.passwordHash.size() <= 256;
+      }
       allow get: if isValidId(userId);
-      allow list: if true;
-      allow create, update: if isValidId(userId)
-        && incoming().keys().hasAll(['userId', 'email', 'passwordHash', 'updatedAt'])
-        && incoming().userId is string && incoming().userId.size() <= 128
-        && incoming().email is string && incoming().email.size() <= 256
-        && incoming().passwordHash is string && incoming().passwordHash.size() <= 256;
+      allow list: if isSignedIn();
+      allow create: if isValidId(userId) && isValidPassword(incoming());
+      allow update: if isValidId(userId) 
+        && isValidPassword(incoming())
+        && incoming().userId == existing().userId;
       allow delete: if isValidId(userId);
     }
 
-    // Topics collection
     match /topics/{topicId} {
+      function isValidTopic(data) {
+        return data.keys().hasAll(['id', 'title', 'type', 'targetGroup', 'content', 'effectiveDate', 'dueDate'])
+          && data.id is string && data.id.size() <= 128
+          && data.title is string && data.title.size() <= 300;
+      }
       allow get: if isValidId(topicId);
-      allow list: if true;
-      allow create, update: if isValidId(topicId)
-        && incoming().keys().hasAll(['id', 'title', 'type', 'targetGroup', 'content', 'effectiveDate', 'dueDate'])
-        && incoming().id is string && incoming().id.size() <= 128
-        && incoming().title is string && incoming().title.size() <= 300;
+      allow list: if isSignedIn();
+      allow create: if isValidId(topicId) && isValidTopic(incoming());
+      allow update: if isValidId(topicId) 
+        && isValidTopic(incoming())
+        && incoming().id == existing().id;
       allow delete: if isValidId(topicId);
     }
 
-    // Topic assignments collection (assignments of topics to selected staff)
     match /topic_assignments/{assignmentId} {
+      function isValidAssignment(data) {
+        return data.keys().hasAll(['id', 'topicId', 'userId', 'status', 'assignedAt'])
+          && data.id is string && data.id.size() <= 128
+          && data.topicId is string && data.topicId.size() <= 128
+          && data.userId is string && data.userId.size() <= 128;
+      }
       allow get: if isValidId(assignmentId);
-      allow list: if true;
-      allow create, update: if isValidId(assignmentId)
-        && incoming().keys().hasAll(['id', 'topicId', 'userId', 'status', 'assignedAt'])
-        && incoming().id is string && incoming().id.size() <= 128
-        && incoming().topicId is string && incoming().topicId.size() <= 128
-        && incoming().userId is string && incoming().userId.size() <= 128;
+      allow list: if isSignedIn();
+      allow create: if isValidId(assignmentId) && isValidAssignment(incoming());
+      allow update: if isValidId(assignmentId) 
+        && isValidAssignment(incoming())
+        && incoming().id == existing().id
+        && incoming().topicId == existing().topicId
+        && incoming().userId == existing().userId;
       allow delete: if isValidId(assignmentId);
     }
 
-    // Staff roster users
     match /users/{userId} {
+      function isValidUser(data) {
+        return data.keys().hasAll(['id', 'uNumber', 'name', 'email', 'isAls', 'isLead', 'isAdmin'])
+          && data.id is string && data.id.size() <= 128
+          && data.email is string && data.email.size() <= 256;
+      }
       allow get: if isValidId(userId);
-      allow list: if true;
-      allow create, update: if isValidId(userId)
-        && incoming().keys().hasAll(['id', 'uNumber', 'name', 'email', 'isAls', 'isLead', 'isAdmin'])
-        && incoming().id is string && incoming().id.size() <= 128
-        && incoming().email is string && incoming().email.size() <= 256;
+      allow list: if isSignedIn();
+      allow create: if isValidId(userId) && isValidUser(incoming());
+      allow update: if isValidId(userId) 
+        && isValidUser(incoming())
+        && incoming().id == existing().id;
       allow delete: if isValidId(userId);
     }
   }

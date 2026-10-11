@@ -14,7 +14,7 @@ import {
   Firestore,
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
-import { TopicConfirmation, Topic, User, TopicAssignment } from './types';
+import { TopicConfirmation, Topic, User, TopicAssignment, TopicCloseOption } from './types';
 
 // Initialize Firebase App
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
@@ -267,6 +267,7 @@ export async function saveTopicToFirestore(topic: Topic, assignedStaff?: User[])
     if (topic.closedAt) payload.closedAt = topic.closedAt;
     if (topic.closedBy) payload.closedBy = topic.closedBy;
     if (topic.closedReason) payload.closedReason = topic.closedReason;
+    if (topic.closedOption) payload.closedOption = topic.closedOption;
 
     await setDoc(docRef, payload, { merge: true });
 
@@ -341,18 +342,25 @@ export async function saveTopicAssignmentsToFirestore(
 export async function closeTopicForAcknowledgementInFirestore(
   topicId: string,
   adminEmail: string,
-  unconfirmedStaff: User[] = []
+  unconfirmedStaff: User[] = [],
+  option: TopicCloseOption = 'mark_participated'
 ): Promise<{ success: boolean; closedCount: number }> {
   try {
     const topicRef = doc(db, 'topics', topicId);
     const nowIso = new Date().toISOString();
+    const reasonText =
+      option === 'mark_participated'
+        ? 'Closed for acknowledgement by administrator (Remaining staff marked as participated)'
+        : 'Closed for acknowledgement by administrator (Missing pax marked as not participated)';
+
     await setDoc(
       topicRef,
       {
         isClosed: true,
         closedAt: nowIso,
         closedBy: adminEmail,
-        closedReason: 'Closed for acknowledgement by administrator (Participation verified)',
+        closedReason: reasonText,
+        closedOption: option,
       },
       { merge: true }
     );
@@ -367,6 +375,8 @@ export async function closeTopicForAcknowledgementInFirestore(
         for (const staff of chunk) {
           const verifId = `conf-${topicId}-${staff.id}`;
           const verifRef = doc(db, 'compliance_verifications', verifId);
+          const isParticipated = option === 'mark_participated';
+
           batch.set(
             verifRef,
             {
@@ -376,9 +386,13 @@ export async function closeTopicForAcknowledgementInFirestore(
               userName: staff.name,
               userEmail: staff.email,
               confirmedAt: nowIso,
-              status: 'confirmed',
-              signatureText: 'Participation Verified by Admin (Closed Session)',
-              adminReviewNote: 'Participation verified & confirmed upon admin closure',
+              status: isParticipated ? 'confirmed' : 'not_participated',
+              signatureText: isParticipated
+                ? 'Participation Verified by Admin (Closed Session)'
+                : 'Not Participated (Admin Closed Session)',
+              adminReviewNote: isParticipated
+                ? 'Participation verified & confirmed upon admin closure'
+                : 'Marked as Not Participated upon admin session closeout',
               reviewedBy: adminEmail,
               reviewedAt: nowIso,
             },
@@ -393,8 +407,8 @@ export async function closeTopicForAcknowledgementInFirestore(
               id: assignId,
               topicId,
               userId: staff.id,
-              status: 'confirmed',
-              confirmedAt: nowIso,
+              status: isParticipated ? 'confirmed' : 'pending',
+              confirmedAt: isParticipated ? nowIso : null,
             },
             { merge: true }
           );
@@ -409,6 +423,58 @@ export async function closeTopicForAcknowledgementInFirestore(
   } catch (error) {
     console.error('Failed to close topic for acknowledgement in Firestore:', error);
     return { success: false, closedCount: 0 };
+  }
+}
+
+export async function reopenTopicInFirestore(
+  topicId: string,
+  adminEmail: string
+): Promise<{ success: boolean; reopenedCount: number }> {
+  try {
+    const topicRef = doc(db, 'topics', topicId);
+    await setDoc(
+      topicRef,
+      {
+        isClosed: false,
+        closedAt: null,
+        closedBy: null,
+        closedReason: null,
+        closedOption: null,
+      },
+      { merge: true }
+    );
+
+    // Query and clean up any verifications generated during closure
+    const verifQuery = query(collection(db, 'compliance_verifications'), where('topicId', '==', topicId));
+    const verifSnap = await getDocs(verifQuery);
+    const batch = writeBatch(db);
+    let reopenedCount = 0;
+
+    for (const docSnap of verifSnap.docs) {
+      const data = docSnap.data();
+      if (
+        data.status === 'not_participated' ||
+        data.signatureText === 'Participation Verified by Admin (Closed Session)' ||
+        data.signatureText === 'Not Participated (Admin Closed Session)'
+      ) {
+        batch.delete(docSnap.ref);
+        reopenedCount++;
+
+        // Reset assignment back to pending
+        const assignId = `${topicId}_${data.userId}`;
+        const assignRef = doc(db, 'topic_assignments', assignId);
+        batch.set(assignRef, { status: 'pending', confirmedAt: null }, { merge: true });
+      }
+    }
+
+    if (reopenedCount > 0) {
+      await batch.commit();
+    }
+
+    return { success: true, reopenedCount };
+  } catch (error) {
+    console.error('Failed to reopen topic in Firestore:', error);
+    return { success: false, reopenedCount: 0 };
   }
 }
 

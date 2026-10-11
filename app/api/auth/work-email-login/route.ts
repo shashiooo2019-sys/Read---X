@@ -1,45 +1,62 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { serverAuthStore } from '@/lib/server-auth-store';
-import { fetchPasswordFromFirestore } from '@/lib/firebase';
+import { fetchPasswordFromFirestore, fetchUsersFromFirestore } from '@/lib/firebase';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { email, password } = body;
 
-    if (!email || typeof email !== 'string' || !email.includes('@')) {
+    if (!email || typeof email !== 'string') {
       return NextResponse.json(
-        { success: false, message: 'Please provide a valid work email address.' },
+        { success: false, message: 'Please provide a valid work email address or U-number.' },
         { status: 400 }
       );
     }
 
-    const cleanEmail = email.trim().toLowerCase();
-    const domain = cleanEmail.split('@')[1] || '';
-    const isWorkDomain = domain === 'dlh.de' || domain === 'swiss.com';
-    const isApprovedPrivate = serverAuthStore.isPrivateEmailApproved(cleanEmail);
+    const cleanInput = email.trim();
+    const cleanEmail = cleanInput.toLowerCase();
 
+    // 1. Try finding user in memory store (checks email, loginEmail, workEmail, U-number)
     let user = serverAuthStore.findUserByEmail(cleanEmail);
 
-    // Authorization check
-    if (!isWorkDomain && !isApprovedPrivate && !user) {
+    // 2. If not found in memory, query Firestore users collection to ensure live sync with DB roster
+    if (!user) {
+      try {
+        const firestoreUsers = await fetchUsersFromFirestore();
+        if (firestoreUsers && firestoreUsers.length > 0) {
+          serverAuthStore.syncRosterUsers(firestoreUsers);
+          user = serverAuthStore.findUserByEmail(cleanEmail);
+        }
+      } catch (dbErr) {
+        console.warn('Firestore live roster sync notice:', dbErr);
+      }
+    }
+
+    const domain = cleanEmail.includes('@') ? cleanEmail.split('@')[1] : '';
+    const isWorkDomain = domain === 'dlh.de' || domain === 'swiss.com' || domain === 'lhgroup.de';
+    const isApprovedPrivate = serverAuthStore.isPrivateEmailApproved(cleanEmail);
+    const isRosterUser = Boolean(user);
+
+    // Authorization check: User must be in the staff roster, from an authorized work domain, or an approved private user
+    if (!isRosterUser && !isWorkDomain && !isApprovedPrivate) {
       serverAuthStore.addAuditLog({
         action: 'login_success',
         performedBy: cleanEmail,
         targetEmail: cleanEmail,
-        details: `Unauthorized login attempt from work email ${cleanEmail} (not a work domain or approved private user)`,
+        details: `Unauthorized login attempt from email ${cleanEmail} (not in staff roster, authorized domain, or approved private user)`,
       });
       return NextResponse.json(
         {
           success: false,
           error: 'UNAUTHORIZED_EMAIL',
-          message: `Email address (${cleanEmail}) is not authorized. Only @dlh.de, @swiss.com work emails and pre-approved private email addresses are permitted.`,
+          message: `Email address "${cleanEmail}" is not in the staff roster. Please enter your registered email from the staff roster (@dlh.de, @swiss.com, @lhgroup.de) or select your profile from the directory.`,
         },
         { status: 403 }
       );
     }
 
-    // Auto-create user if not in store yet but domain/approval is valid
+    // Auto-create user only if from valid work domain and not already found in roster
     if (!user) {
       const rawName = cleanEmail.split('@')[0].replace(/[._-]/g, ' ');
       const name = rawName.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
@@ -71,13 +88,18 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Canonical sign-in email matching roster
+    const canonicalEmail = user.email || cleanEmail;
+
     // Check if password setup is needed (First sign-in via work email)
     if (!user.passwordHash) {
       return NextResponse.json({
         success: true,
         needsPasswordSetup: true,
-        email: user.email,
-        message: 'First sign-in via work email. Please create and save a password to access the application.',
+        email: canonicalEmail,
+        userName: user.name,
+        uNumber: user.uNumber,
+        message: `Welcome ${user.name} (${user.uNumber})! First sign-in. Please create and save a password to access the application.`,
       });
     }
 
@@ -86,8 +108,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         success: true,
         needsPassword: true,
-        email: user.email,
-        message: 'Please enter your password to sign in.',
+        email: canonicalEmail,
+        userName: user.name,
+        uNumber: user.uNumber,
+        message: `Please enter your password for ${user.name} (${canonicalEmail}) to sign in.`,
       });
     }
 
@@ -104,14 +128,14 @@ export async function POST(req: NextRequest) {
     const userAgent = req.headers.get('user-agent') || 'unknown-device';
     const clientIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
 
-    const sessionId = serverAuthStore.createSession(user.id, cleanEmail, clientIp, userAgent);
+    const sessionId = serverAuthStore.createSession(user.id, canonicalEmail, clientIp, userAgent);
 
     serverAuthStore.addAuditLog({
       action: 'login_success',
       userId: user.id,
-      performedBy: cleanEmail,
-      targetEmail: cleanEmail,
-      details: `Successful sign-in with work email and password for ${cleanEmail}`,
+      performedBy: canonicalEmail,
+      targetEmail: canonicalEmail,
+      details: `Successful sign-in with work email and password for ${canonicalEmail} (${user.name})`,
       ipAddress: clientIp,
     });
 

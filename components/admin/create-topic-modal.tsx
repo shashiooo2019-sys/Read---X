@@ -2,7 +2,21 @@
 
 import React, { useState, useMemo } from 'react';
 import { Topic, TopicType, TargetGroup, User } from '@/lib/types';
-import { X, Plus, Calendar, Link as LinkIcon, FileText, AlertCircle, Users, Search, Check } from 'lucide-react';
+import { getSystemDateString } from '@/lib/compliance-store';
+import {
+  X,
+  Plus,
+  Calendar,
+  Link as LinkIcon,
+  FileText,
+  AlertCircle,
+  Users,
+  Search,
+  Check,
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+} from 'lucide-react';
 
 interface CreateTopicModalProps {
   currentUserEmail: string;
@@ -36,18 +50,44 @@ export function CreateTopicModal({
   const [content, setContent] = useState('');
   const [attachmentUrl, setAttachmentUrl] = useState('');
   const [attachmentName, setAttachmentName] = useState('');
-  const [publishedDate, setPublishedDate] = useState('2026-10-08');
-  const [dueDate, setDueDate] = useState('2026-10-23'); // 15 days default for Document Read and Sign
-  const [version, setVersion] = useState('v1.0');
-  const [formError, setFormError] = useState('');
+
+  // Calculate system date as today for default published date and reference
+  const todayStr = useMemo(() => getSystemDateString(), []);
 
   const calculateDueDate = (t: TopicType, pubDate: string): string => {
     const d = new Date(pubDate);
     if (isNaN(d.getTime())) return pubDate;
-    const days = (t === 'Document Read and Sign' || t === 'GPD/GPI Read and Sign' || t === 'AHD/AHI Read and Sign') ? 15 : 2;
+    const days =
+      t === 'Document Read and Sign' || t === 'GPD/GPI Read and Sign' || t === 'AHD/AHI Read and Sign'
+        ? 15
+        : 2;
     d.setDate(d.getDate() + days);
     return d.toISOString().split('T')[0];
   };
+
+  const [publishedDate, setPublishedDate] = useState<string>(todayStr);
+  const [dueDate, setDueDate] = useState<string>(() =>
+    calculateDueDate('Document Read and Sign', todayStr)
+  );
+  const [version, setVersion] = useState('v1.0');
+  const [formError, setFormError] = useState('');
+
+  // State for acknowledging past publication date alert
+  const [hasAcknowledgedPastDate, setHasAcknowledgedPastDate] = useState(false);
+  const [showPastDateAlertModal, setShowPastDateAlertModal] = useState(false);
+
+  // Calculate whether published date is in the future, past, or today based on system date
+  const isFuture = Boolean(publishedDate && publishedDate > todayStr);
+  const isPast = Boolean(publishedDate && publishedDate < todayStr);
+  const isToday = Boolean(publishedDate && publishedDate === todayStr);
+
+  const daysDiff = useMemo(() => {
+    if (!publishedDate) return 0;
+    const pub = new Date(publishedDate + 'T00:00:00');
+    const sys = new Date(todayStr + 'T00:00:00');
+    const diffTime = pub.getTime() - sys.getTime();
+    return Math.round(diffTime / (1000 * 60 * 60 * 24));
+  }, [publishedDate, todayStr]);
 
   const handleTypeChange = (newType: TopicType) => {
     setType(newType);
@@ -58,6 +98,9 @@ export function CreateTopicModal({
   const handlePublishedDateChange = (newPubDate: string) => {
     setPublishedDate(newPubDate);
     setDueDate(calculateDueDate(type, newPubDate));
+    // Reset acknowledgment whenever date is changed
+    setHasAcknowledgedPastDate(false);
+    setFormError('');
   };
 
   // Filter roster for individual staff selection
@@ -72,6 +115,26 @@ export function CreateTopicModal({
         (u.department && u.department.toLowerCase().includes(q))
     );
   }, [users, staffSearchQuery]);
+
+  const doSaveTopic = () => {
+    onSaveTopic({
+      title: title.trim(),
+      type,
+      customTypeDesc: type === 'Others' ? customTypeDesc.trim() : undefined,
+      targetGroup,
+      assignedUserIds: selectedStaffIds.length > 0 ? selectedStaffIds : undefined,
+      content: content.trim(),
+      attachmentUrl: attachmentUrl.trim() || undefined,
+      attachmentName: attachmentName.trim() || undefined,
+      publishedDate,
+      effectiveDate: publishedDate, // Synced for consistency
+      dueDate,
+      createdBy: currentUserEmail,
+      version: version.trim() || 'v1.0',
+    });
+
+    onClose();
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -98,23 +161,16 @@ export function CreateTopicModal({
       return;
     }
 
-    onSaveTopic({
-      title: title.trim(),
-      type,
-      customTypeDesc: type === 'Others' ? customTypeDesc.trim() : undefined,
-      targetGroup,
-      assignedUserIds: selectedStaffIds.length > 0 ? selectedStaffIds : undefined,
-      content: content.trim(),
-      attachmentUrl: attachmentUrl.trim() || undefined,
-      attachmentName: attachmentName.trim() || undefined,
-      publishedDate,
-      effectiveDate: publishedDate, // Synced for consistency
-      dueDate,
-      createdBy: currentUserEmail,
-      version: version.trim() || 'v1.0',
-    });
+    // If published date is in the past, an alert must be acknowledged
+    if (isPast && !hasAcknowledgedPastDate) {
+      setShowPastDateAlertModal(true);
+      setFormError(
+        'Acknowledgment required: This topic has a published date in the past. Please review and acknowledge the alert before publishing.'
+      );
+      return;
+    }
 
-    onClose();
+    doSaveTopic();
   };
 
   return (
@@ -344,25 +400,40 @@ export function CreateTopicModal({
           {/* Row: Dates & Version */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block font-semibold text-slate-800 mb-1">
-                Published date <span className="text-red-500">*</span>
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="font-semibold text-slate-800">
+                  Published date <span className="text-red-500">*</span>
+                </label>
+                {isToday && (
+                  <span className="text-[9px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                    Today (System)
+                  </span>
+                )}
+                {isFuture && (
+                  <span className="text-[9px] font-semibold text-purple-700 bg-purple-50 px-1.5 py-0.2 rounded border border-purple-200">
+                    Future (+{daysDiff}d)
+                  </span>
+                )}
+                {isPast && (
+                  <span className="text-[9px] font-bold text-amber-800 bg-amber-100 px-1.5 py-0.2 rounded border border-amber-300">
+                    ⚠️ Past (-{Math.abs(daysDiff)}d)
+                  </span>
+                )}
+              </div>
               <input
                 type="date"
                 value={publishedDate}
                 onChange={e => handlePublishedDateChange(e.target.value)}
-                className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-[#0078D4]"
+                className={`w-full px-3 py-1.5 text-xs border rounded focus:outline-none focus:ring-1 ${
+                  isPast
+                    ? 'border-amber-400 bg-amber-50/30 focus:ring-amber-500'
+                    : 'border-slate-300 focus:ring-[#0078D4]'
+                }`}
                 required
               />
-              {publishedDate > '2026-10-08' ? (
-                <div className="mt-1 text-[10px] text-purple-800 bg-purple-50 p-1.5 rounded border border-purple-200">
-                  🗓️ <strong>Future Planned:</strong> Topic will be planned for {publishedDate} and will not appear in participants&apos; Total Assigned or Pending queues until that date.
-                </div>
-              ) : (
-                <p className="text-[10px] text-slate-500 mt-1">
-                  Active publication date for this directive.
-                </p>
-              )}
+              <p className="text-[10px] text-slate-500 mt-1">
+                System Date: <span className="font-mono font-medium">{todayStr}</span>
+              </p>
             </div>
             <div>
               <label className="block font-semibold text-slate-800 mb-1">
@@ -394,6 +465,77 @@ export function CreateTopicModal({
               />
             </div>
           </div>
+
+          {/* Dynamic Date Notice or Past Alert */}
+          {isFuture && (
+            <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg text-purple-900 flex items-start gap-2.5">
+              <Calendar className="w-4 h-4 text-purple-700 shrink-0 mt-0.5" />
+              <div>
+                <div className="font-bold text-xs">🗓️ Future Planned Directive</div>
+                <p className="text-[11px] text-purple-800 mt-0.5 leading-normal">
+                  Topic is scheduled for future release on <strong>{publishedDate}</strong> ({daysDiff} {daysDiff === 1 ? 'day' : 'days'} in the future from system date <strong>{todayStr}</strong>).
+                  It will remain scheduled and will not appear in participants&apos; active or pending queues until {publishedDate}.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {isPast && (
+            <div className="p-3.5 bg-amber-50/90 border-2 border-amber-400 rounded-lg text-amber-950 space-y-2.5 shadow-xs">
+              <div className="flex items-start gap-2.5">
+                <div className="w-7 h-7 rounded-full bg-amber-200 border border-amber-400 flex items-center justify-center shrink-0 mt-0.5">
+                  <AlertTriangle className="w-4 h-4 text-amber-800" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h4 className="font-bold text-xs text-amber-900">
+                      ⚠️ Alert: Published Date is in the Past (Backdated Topic)
+                    </h4>
+                    <span className="text-[10px] font-mono font-bold bg-amber-200 text-amber-900 px-2 py-0.5 rounded border border-amber-300">
+                      {Math.abs(daysDiff)} {Math.abs(daysDiff) === 1 ? 'day' : 'days'} before system date
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-amber-800 mt-1 leading-normal">
+                    The chosen publication date (<strong>{publishedDate}</strong>) is earlier than today&apos;s system date (<strong>{todayStr}</strong>).
+                    Publishing a directive with a past published date impacts station compliance workflows:
+                  </p>
+                  <ul className="text-[10px] text-amber-800 list-disc list-inside mt-1.5 space-y-0.5 leading-relaxed">
+                    <li>
+                      <strong>Immediate Visibility:</strong> Topic will become immediately active and visible in assigned staff compliance dashboards.
+                    </li>
+                    <li>
+                      <strong>Due Date Timeline:</strong> Mandatory due date is calculated as <strong>{dueDate}</strong>. If already past or imminent, staff compliance will immediately register as overdue.
+                    </li>
+                    <li>
+                      <strong>Audit Trail:</strong> Both the backdated publication date ({publishedDate}) and the system creation timestamp ({todayStr}) will be recorded.
+                    </li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* In-form Acknowledgment Checkbox */}
+              <label
+                className={`flex items-start gap-2.5 p-2.5 rounded-md border cursor-pointer transition ${
+                  hasAcknowledgedPastDate
+                    ? 'bg-emerald-50 border-emerald-400 text-emerald-900 font-medium'
+                    : 'bg-amber-100 border-amber-400 text-amber-950 font-medium hover:bg-amber-100/90'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={hasAcknowledgedPastDate}
+                  onChange={e => {
+                    setHasAcknowledgedPastDate(e.target.checked);
+                    if (e.target.checked) setFormError('');
+                  }}
+                  className="w-4 h-4 mt-0.5 rounded text-amber-700 focus:ring-amber-500 cursor-pointer shrink-0"
+                />
+                <div className="text-[11px] leading-tight">
+                  <span className="font-bold">Mandatory Acknowledgment:</span> I acknowledge that this topic has a published date in the past ({publishedDate}) and confirm backdating this compliance directive.
+                </div>
+              </label>
+            </div>
+          )}
 
           {/* Content / Instructions */}
           <div>
@@ -463,6 +605,79 @@ export function CreateTopicModal({
           </div>
         </form>
       </div>
+
+      {/* Past Publication Date Alert Dialog */}
+      {showPastDateAlertModal && (
+        <div className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border-2 border-amber-400 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-5 py-4 bg-amber-50 border-b border-amber-200 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-full bg-amber-100 border border-amber-300 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-amber-700" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm">Past Publication Date Alert</h3>
+                <p className="text-[11px] text-amber-800 font-medium">Acknowledgment Required to Proceed</p>
+              </div>
+            </div>
+
+            <div className="p-5 text-xs text-slate-700 space-y-3">
+              <p className="leading-relaxed">
+                You are publishing <strong className="text-slate-900">&quot;{title.trim() || 'Untitled Topic'}&quot;</strong> with a publication date of{' '}
+                <strong className="text-amber-900 font-mono">{publishedDate}</strong>, which is{' '}
+                <strong className="text-amber-900">{Math.abs(daysDiff)} {Math.abs(daysDiff) === 1 ? 'day' : 'days'} in the past</strong>{' '}
+                compared to today&apos;s system date (<span className="font-mono text-slate-800">{todayStr}</span>).
+              </p>
+
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-[11px] space-y-1.5">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">System Date (Today):</span>
+                  <span className="font-mono font-semibold text-slate-900">{todayStr}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Selected Published Date:</span>
+                  <span className="font-mono font-bold text-amber-800">{publishedDate}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Calculated Due Date:</span>
+                  <span className="font-mono font-semibold text-slate-900">{dueDate}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Compliance Status:</span>
+                  <span className="font-semibold text-amber-700">{Math.abs(daysDiff)} days backdated</span>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-600 leading-normal">
+                Publishing a backdated topic makes it active immediately and may affect staff compliance records and overdue timelines.
+                Please acknowledge to confirm publication.
+              </p>
+            </div>
+
+            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowPastDateAlertModal(false)}
+                className="px-3.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 rounded transition cursor-pointer"
+              >
+                Change Date
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setHasAcknowledgedPastDate(true);
+                  setShowPastDateAlertModal(false);
+                  setFormError('');
+                  doSaveTopic();
+                }}
+                className="px-4 py-1.5 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded transition shadow-sm flex items-center gap-1.5 cursor-pointer"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>Acknowledge &amp; Publish Topic</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

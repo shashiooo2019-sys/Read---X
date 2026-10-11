@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { User, Topic, TopicConfirmation, TopicType, TargetGroup, DateFilterType, DateFilterOptions } from '@/lib/types';
+import { User, Topic, TopicConfirmation, TopicType, TargetGroup, DateFilterType, DateFilterOptions, TopicCloseOption } from '@/lib/types';
 import {
   calculateTopicStats,
   TopicComplianceStats,
@@ -50,7 +50,8 @@ interface AdminConsoleProps {
   currentUser: User;
   onCreateTopic: (topicData: Omit<Topic, 'id' | 'createdAt'>) => void;
   onDeleteTopic: (topicId: string) => void;
-  onCloseTopicForAcknowledgement?: (topicId: string) => void;
+  onCloseTopicForAcknowledgement?: (topicId: string, option: TopicCloseOption) => void;
+  onReopenTopicForAcknowledgement?: (topicId: string) => void;
   onUpdateConfirmation?: (confirmationId: string, newStatus: 'confirmed' | 'rejected', reviewNote?: string) => void;
   onNavigateToRoster?: () => void;
 }
@@ -90,6 +91,7 @@ export function AdminConsole({
   onCreateTopic,
   onDeleteTopic,
   onCloseTopicForAcknowledgement,
+  onReopenTopicForAcknowledgement,
   onUpdateConfirmation,
   onNavigateToRoster,
 }: AdminConsoleProps) {
@@ -165,19 +167,20 @@ export function AdminConsole({
     return map;
   }, [topics]);
 
-  // Reference date for date filtering is October 7, 2026 (local runtime time)
-  const referenceDate = useMemo(() => new Date(2026, 9, 7), []);
+  // Reference date for date filtering is system date (local runtime time)
+  const referenceDate = useMemo(() => new Date(), []);
 
   // Generate 52 weeks options for current selected year
   const weekOptions = useMemo(() => {
     const currentWeek = getISOWeekNumber(referenceDate);
+    const systemCurrentYear = referenceDate.getFullYear();
     const weeks: { weekNum: number; label: string; isCurrent: boolean }[] = [];
     for (let w = 52; w >= 1; w--) {
       const range = getWeekDateRange(w, selectedYear);
       weeks.push({
         weekNum: w,
-        label: range.label + (selectedYear === 2026 && w === currentWeek ? ' · Current Week' : ''),
-        isCurrent: selectedYear === 2026 && w === currentWeek,
+        label: range.label + (selectedYear === systemCurrentYear && w === currentWeek ? ' · Current Week' : ''),
+        isCurrent: selectedYear === systemCurrentYear && w === currentWeek,
       });
     }
     return weeks;
@@ -1481,6 +1484,7 @@ export function AdminConsole({
           stats={selectedTopicForBreakdown}
           onUpdateConfirmation={onUpdateConfirmation}
           onCloseTopicForAcknowledgement={onCloseTopicForAcknowledgement}
+          onReopenTopicForAcknowledgement={onReopenTopicForAcknowledgement}
           onClose={() => setSelectedTopicForBreakdown(null)}
         />
       )}
@@ -1541,7 +1545,7 @@ export function AdminConsole({
               <button
                 onClick={() => {
                   if (onCloseTopicForAcknowledgement) {
-                    onCloseTopicForAcknowledgement(topicToClose.topic.id);
+                    onCloseTopicForAcknowledgement(topicToClose.topic.id, 'mark_participated');
                   }
                   setTopicToClose(null);
                   if (selectedTopicForBreakdown?.topic.id === topicToClose.topic.id) {

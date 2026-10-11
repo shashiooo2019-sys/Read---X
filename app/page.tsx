@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { User, Topic, TopicConfirmation } from '@/lib/types';
+import { User, Topic, TopicConfirmation, TopicCloseOption } from '@/lib/types';
 import { INITIAL_STAFF_ROSTER } from '@/lib/roster-data';
 import { INITIAL_TOPICS, generateInitialConfirmations } from '@/lib/initial-topics';
 import {
@@ -28,6 +28,7 @@ import {
   deleteUserFromFirestore,
   saveAllUsersToFirestore,
   closeTopicForAcknowledgementInFirestore,
+  reopenTopicInFirestore,
 } from '@/lib/firebase';
 import { GoogleLogin } from '@/components/auth/google-login';
 import { TopBar } from '@/components/navigation/top-bar';
@@ -217,6 +218,11 @@ export default function Home() {
     saveUsers(updated);
     try {
       await saveUserToFirestore(newStaff);
+      fetch('/api/auth/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'sync_roster', roster: updated }),
+      }).catch(() => null);
       setFirestoreConfirmation({
         title: 'Staff Member Saved to Firestore',
         recordType: 'roster_sync',
@@ -240,6 +246,11 @@ export default function Home() {
     }
     try {
       await saveUserToFirestore(updatedStaff);
+      fetch('/api/auth/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'sync_roster', roster: updated }),
+      }).catch(() => null);
       setFirestoreConfirmation({
         title: 'Staff Record Updated in Firestore',
         recordType: 'roster_sync',
@@ -289,6 +300,11 @@ export default function Home() {
     }
     try {
       await saveAllUsersToFirestore(updatedList);
+      fetch('/api/auth/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'sync_roster', roster: updatedList }),
+      }).catch(() => null);
       setFirestoreConfirmation({
         title: 'Staff Roster Synchronized with Firestore',
         recordType: 'roster_sync',
@@ -364,18 +380,24 @@ export default function Home() {
     }
   };
 
-  // Close topic for acknowledgement (Trainings, Briefings, Role Plays)
-  const handleCloseTopic = async (topicId: string) => {
+  // Close topic for acknowledgement (Options: mark remaining as participated OR mark missing pax as not participated)
+  const handleCloseTopic = async (topicId: string, option: TopicCloseOption = 'mark_participated') => {
     const topicToClose = topics.find(t => t.id === topicId);
     if (!topicToClose) return;
 
     const nowIso = new Date().toISOString();
+    const reasonText =
+      option === 'mark_participated'
+        ? 'Topic closed for acknowledgement by Administrator. Remaining staff marked as participated.'
+        : 'Topic closed for acknowledgement by Administrator. Missing pax marked as not participated.';
+
     const closedTopic: Topic = {
       ...topicToClose,
       isClosed: true,
       closedAt: nowIso,
       closedBy: currentUser?.email || 'Administrator',
-      closedReason: 'Topic closed for acknowledgement by Administrator. Participation verified.',
+      closedReason: reasonText,
+      closedOption: option,
     };
 
     const updatedTopics = topics.map(t => (t.id === topicId ? closedTopic : t));
@@ -388,7 +410,8 @@ export default function Home() {
       u => !confirmations.some(c => c.topicId === topicId && c.userId === u.id && c.status === 'confirmed')
     );
 
-    const autoVerifications: TopicConfirmation[] = unconfirmedStaff.map(staff => ({
+    const isParticipated = option === 'mark_participated';
+    const closeoutVerifications: TopicConfirmation[] = unconfirmedStaff.map(staff => ({
       id: `conf-${topicId}-${staff.id}`,
       topicId: topicId,
       documentId: topicId,
@@ -398,17 +421,21 @@ export default function Home() {
       userEmail: staff.email,
       userName: staff.name,
       confirmedAt: nowIso,
-      status: 'confirmed',
-      signatureText: 'Participation Verified by Admin (Closed Session)',
-      adminReviewNote: 'Participation verified & confirmed upon admin closure',
+      status: isParticipated ? 'confirmed' : 'not_participated',
+      signatureText: isParticipated
+        ? 'Participation Verified by Admin (Closed Session)'
+        : 'Not Participated (Admin Closed Session)',
+      adminReviewNote: isParticipated
+        ? 'Participation verified & confirmed upon admin closure'
+        : 'Marked as Not Participated upon admin session closeout',
       reviewedBy: currentUser?.email || 'Administrator',
       reviewedAt: nowIso,
     }));
 
     const existingOtherConfs = confirmations.filter(
-      c => !autoVerifications.some(ac => ac.topicId === c.topicId && ac.userId === c.userId)
+      c => !closeoutVerifications.some(ac => ac.topicId === c.topicId && ac.userId === c.userId)
     );
-    const updatedConfirmations = [...autoVerifications, ...existingOtherConfs];
+    const updatedConfirmations = [...closeoutVerifications, ...existingOtherConfs];
     setConfirmations(updatedConfirmations);
     saveConfirmations(updatedConfirmations);
 
@@ -416,20 +443,72 @@ export default function Home() {
       await closeTopicForAcknowledgementInFirestore(
         topicId,
         currentUser?.email || 'Administrator',
-        unconfirmedStaff
+        unconfirmedStaff,
+        option
       );
 
+      const statusDesc =
+        option === 'mark_participated'
+          ? `"${closedTopic.title}" was closed for acknowledgement. All ${eligibleStaff.length} participant records were verified and permanently saved to Cloud Firestore.`
+          : `"${closedTopic.title}" was closed for acknowledgement. ${unconfirmedStaff.length} missing participant(s) were recorded as Not Participated in Cloud Firestore.`;
+
       setFirestoreConfirmation({
-        title: 'Topic Closed & Participations Verified in Firestore',
+        title: 'Topic Closed in Firestore',
         recordType: 'topic_closed',
         topicTitle: closedTopic.title,
         assignedCount: eligibleStaff.length,
         collections: ['topics', 'compliance_verifications', 'topic_assignments'],
         timestamp: nowIso,
-        statusText: `"${closedTopic.title}" was closed for acknowledgement. All ${eligibleStaff.length} participant records were verified and permanently saved to Cloud Firestore. Zero browser storage.`,
+        statusText: statusDesc,
       });
     } catch (err) {
       console.warn('Firebase error closing topic for acknowledgement:', err);
+    }
+  };
+
+  // Reopen topic for acknowledgement
+  const handleReopenTopic = async (topicId: string) => {
+    const topicToReopen = topics.find(t => t.id === topicId);
+    if (!topicToReopen) return;
+
+    const reopenedTopic: Topic = {
+      ...topicToReopen,
+      isClosed: false,
+      closedAt: undefined,
+      closedBy: undefined,
+      closedReason: undefined,
+      closedOption: undefined,
+    };
+
+    const updatedTopics = topics.map(t => (t.id === topicId ? reopenedTopic : t));
+    setTopics(updatedTopics);
+    saveTopics(updatedTopics, users);
+
+    // Remove any verifications generated during admin closeout so staff can sign authentically
+    const cleanedConfirmations = confirmations.filter(c => {
+      if (c.topicId !== topicId) return true;
+      if (c.status === 'not_participated') return false;
+      if (c.signatureText === 'Participation Verified by Admin (Closed Session)') return false;
+      if (c.signatureText === 'Not Participated (Admin Closed Session)') return false;
+      return true;
+    });
+
+    setConfirmations(cleanedConfirmations);
+    saveConfirmations(cleanedConfirmations);
+
+    try {
+      await reopenTopicInFirestore(topicId, currentUser?.email || 'Administrator');
+
+      setFirestoreConfirmation({
+        title: 'Topic Reopened for Acknowledgement',
+        recordType: 'topic_reopened',
+        topicTitle: reopenedTopic.title,
+        collections: ['topics', 'compliance_verifications', 'topic_assignments'],
+        timestamp: new Date().toISOString(),
+        statusText: `"${reopenedTopic.title}" has been successfully reopened for acknowledgement. The directive is active again for assigned staff.`,
+      });
+    } catch (err) {
+      console.warn('Firebase error reopening topic for acknowledgement:', err);
     }
   };
 
@@ -484,6 +563,7 @@ export default function Home() {
     return (
       <GoogleLogin
         onLoginSuccess={handleLoginSuccess}
+        rosterUsers={users}
       />
     );
   }
@@ -519,6 +599,7 @@ export default function Home() {
             onCreateTopic={handleCreateTopic}
             onDeleteTopic={handleDeleteTopic}
             onCloseTopicForAcknowledgement={handleCloseTopic}
+            onReopenTopicForAcknowledgement={handleReopenTopic}
             onUpdateConfirmation={handleUpdateConfirmation}
             onNavigateToRoster={() => setActiveTab('staff-roster')}
           />

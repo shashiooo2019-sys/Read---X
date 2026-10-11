@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { TopicComplianceStats } from '@/lib/compliance-store';
 import { exportSingleTopicReport } from '@/lib/export-utils';
+import { TopicCloseOption } from '@/lib/types';
 import {
   X,
   Download,
@@ -15,13 +16,15 @@ import {
   UserCheck,
   UserX,
   Maximize2,
-  Minimize2
+  Minimize2,
+  RotateCcw
 } from 'lucide-react';
 
 interface TopicBreakdownModalProps {
   stats: TopicComplianceStats;
   onUpdateConfirmation?: (confirmationId: string, newStatus: 'confirmed' | 'rejected', reviewNote?: string) => void;
-  onCloseTopicForAcknowledgement?: (topicId: string) => void;
+  onCloseTopicForAcknowledgement?: (topicId: string, option: TopicCloseOption) => void;
+  onReopenTopicForAcknowledgement?: (topicId: string) => void;
   onClose: () => void;
 }
 
@@ -29,34 +32,33 @@ export function TopicBreakdownModal({
   stats,
   onUpdateConfirmation,
   onCloseTopicForAcknowledgement,
+  onReopenTopicForAcknowledgement,
   onClose,
 }: TopicBreakdownModalProps) {
-  const [activeTab, setActiveTab] = useState<'missing' | 'confirmed' | 'pending_late'>('missing');
+  const [activeTab, setActiveTab] = useState<'missing' | 'confirmed' | 'pending_late' | 'not_participated'>('missing');
   const [searchStaff, setSearchStaff] = useState('');
   const [reminderSentStaff, setReminderSentStaff] = useState<Record<string, boolean>>({});
   const [isFullscreen, setIsFullscreen] = useState(true);
+  const [showCloseDialog, setShowCloseDialog] = useState(false);
+  const [closeOption, setCloseOption] = useState<TopicCloseOption>('mark_participated');
+  const [showReopenDialog, setShowReopenDialog] = useState(false);
 
   const todayStr = new Date().toISOString().split('T')[0];
   const isPastDeadline = Boolean(stats.topic.dueDate && stats.topic.dueDate < todayStr);
-  const isTrainingBriefingOrRolePlay =
-    stats.topic.type === 'Training' ||
-    stats.topic.type === 'Briefing' ||
-    stats.topic.type === 'Role Play';
 
-  const canCloseForAck =
-    isTrainingBriefingOrRolePlay &&
-    !stats.topic.isClosed &&
-    (stats.totalMissing === 0 || isPastDeadline);
+  const canCloseForAck = !stats.topic.isClosed;
 
   const {
     topic,
     confirmedStaff,
     missingStaff,
     pendingLateStaff,
+    notParticipatedStaff = [],
     totalEligible,
     totalConfirmed,
     totalMissing,
     totalPendingLate,
+    totalNotParticipated = 0,
     completionRate,
   } = stats;
 
@@ -101,6 +103,15 @@ export function TopicBreakdownModal({
     );
   });
 
+  const filteredNotParticipated = notParticipatedStaff.filter(item => {
+    const q = searchStaff.toLowerCase();
+    return (
+      item.user.name.toLowerCase().includes(q) ||
+      item.user.email.toLowerCase().includes(q) ||
+      item.user.uNumber.toLowerCase().includes(q)
+    );
+  });
+
   return (
     <div className={`fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center ${isFullscreen ? 'p-0' : 'p-2 sm:p-4'} overflow-hidden`}>
       <div className={`bg-white shadow-2xl w-full border border-slate-200 overflow-hidden flex flex-col transition-all duration-200 ${
@@ -120,30 +131,39 @@ export function TopicBreakdownModal({
               {topic.isClosed && (
                 <>
                   <span aria-hidden="true">·</span>
-                  <span className="font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full text-[10px]">
-                    ✓ Closed for Acknowledgement
+                  <span className={`font-bold px-2 py-0.5 rounded-full text-[10px] ${
+                    topic.closedOption === 'mark_not_participated'
+                      ? 'text-amber-800 bg-amber-100'
+                      : 'text-emerald-800 bg-emerald-100'
+                  }`}>
+                    {topic.closedOption === 'mark_not_participated' ? 'Closed (Partial Pax)' : '✓ Closed for Acknowledgement'}
                   </span>
                 </>
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-base sm:text-lg font-bold text-slate-900 leading-snug">{topic.title}</h2>
-              {canCloseForAck && (
+              {topic.isClosed ? (
                 <button
                   type="button"
-                  onClick={() => {
-                    if (window.confirm(`Close "${topic.title}" for acknowledgement?\n\nThis will:\n1. Permanently finalize and close the topic in Firestore.\n2. Mark all ${totalMissing} pending participants as confirmed/verified.\n3. Remove this topic from their pending queue.`)) {
-                      onCloseTopicForAcknowledgement?.(topic.id);
-                      onClose();
-                    }
-                  }}
+                  onClick={() => setShowReopenDialog(true)}
+                  className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                  title="Reopen topic for staff acknowledgement"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Reopen Topic for Acknowledgement</span>
+                </button>
+              ) : canCloseForAck ? (
+                <button
+                  type="button"
+                  onClick={() => setShowCloseDialog(true)}
                   className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs transition flex items-center gap-1.5 cursor-pointer"
-                  title="Close topic for acknowledgement: verifies all assigned participants"
+                  title="Close topic for acknowledgement: choose participation option"
                 >
                   <CheckCircle2 className="w-3.5 h-3.5" />
                   <span>Close Topic for Acknowledgement</span>
                 </button>
-              )}
+              ) : null}
             </div>
           </div>
           <div className="flex items-center gap-1">
@@ -452,6 +472,143 @@ export function TopicBreakdownModal({
           </button>
         </div>
       </div>
+
+      {/* Close Topic Option Modal */}
+      {showCloseDialog && (
+        <div className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full border border-slate-200 p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5 text-indigo-700 font-bold text-base">
+                <CheckCircle2 className="w-5 h-5" />
+                <span>Close Topic for Acknowledgement</span>
+              </div>
+              <button onClick={() => setShowCloseDialog(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-700 leading-relaxed">
+              Choose how to handle the closing of <strong>&ldquo;{topic.title}&rdquo;</strong> for acknowledgement:
+            </p>
+
+            <div className="space-y-3 pt-1">
+              <label className={`flex items-start gap-3 p-3.5 rounded-xl border transition cursor-pointer ${
+                closeOption === 'mark_participated'
+                  ? 'bg-indigo-50/70 border-indigo-300 ring-1 ring-indigo-300'
+                  : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+              }`}>
+                <input
+                  type="radio"
+                  name="closeOption"
+                  value="mark_participated"
+                  checked={closeOption === 'mark_participated'}
+                  onChange={() => setCloseOption('mark_participated')}
+                  className="mt-0.5 text-indigo-600 focus:ring-indigo-500"
+                />
+                <div className="text-xs space-y-0.5">
+                  <span className="font-bold text-slate-900 block">Mark remaining staff as participated</span>
+                  <span className="text-slate-600 block leading-normal">
+                    All {totalMissing} remaining unconfirmed staff will be automatically marked as verified and confirmed in Cloud Firestore, clearing their pending queues.
+                  </span>
+                </div>
+              </label>
+
+              <label className={`flex items-start gap-3 p-3.5 rounded-xl border transition cursor-pointer ${
+                closeOption === 'mark_not_participated'
+                  ? 'bg-indigo-50/70 border-indigo-300 ring-1 ring-indigo-300'
+                  : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+              }`}>
+                <input
+                  type="radio"
+                  name="closeOption"
+                  value="mark_not_participated"
+                  checked={closeOption === 'mark_not_participated'}
+                  onChange={() => setCloseOption('mark_not_participated')}
+                  className="mt-0.5 text-indigo-600 focus:ring-indigo-500"
+                />
+                <div className="text-xs space-y-0.5">
+                  <span className="font-bold text-slate-900 block">Mark missing pax as not participated</span>
+                  <span className="text-slate-600 block leading-normal">
+                    All {totalMissing} missing staff will be officially recorded as <strong>Not Participated</strong> in Cloud Firestore. This preserves accurate compliance records without forcing false participation.
+                  </span>
+                </div>
+              </label>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                onClick={() => setShowCloseDialog(false)}
+                className="px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (onCloseTopicForAcknowledgement) {
+                    onCloseTopicForAcknowledgement(topic.id, closeOption);
+                  }
+                  setShowCloseDialog(false);
+                  onClose();
+                }}
+                className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition shadow-xs cursor-pointer"
+              >
+                Confirm &amp; Close Session
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reopen Topic Modal */}
+      {showReopenDialog && (
+        <div className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-slate-200 p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5 text-amber-700 font-bold text-base">
+                <RotateCcw className="w-5 h-5" />
+                <span>Reopen Topic for Acknowledgement</span>
+              </div>
+              <button onClick={() => setShowReopenDialog(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-700 leading-relaxed">
+              Are you sure you want to reopen <strong>&ldquo;{topic.title}&rdquo;</strong>?
+            </p>
+
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900 space-y-1">
+              <span className="font-semibold block">Reopening Actions:</span>
+              <ul className="list-disc list-inside space-y-0.5">
+                <li>Topic status will return to active (not closed).</li>
+                <li>Admin closeout verifications will be cleared.</li>
+                <li>Assigned personnel can resume authentic acknowledgment and signing.</li>
+              </ul>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                onClick={() => setShowReopenDialog(false)}
+                className="px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (onReopenTopicForAcknowledgement) {
+                    onReopenTopicForAcknowledgement(topic.id);
+                  }
+                  setShowReopenDialog(false);
+                  onClose();
+                }}
+                className="px-4 py-2 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition shadow-xs cursor-pointer"
+              >
+                Confirm Reopen Topic
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -5,7 +5,7 @@ import { CheckCircle2, Cloud, Database, X, ShieldCheck, ArrowRight, Layers } fro
 
 export interface FirestoreConfirmationDetails {
   title: string;
-  recordType: 'acknowledgment' | 'topic_created' | 'topic_deleted' | 'roster_sync' | 'admin_review' | 'topic_closed';
+  recordType: 'acknowledgment' | 'topic_created' | 'topic_deleted' | 'roster_sync' | 'admin_review' | 'topic_closed' | 'topic_reopened';
   topicTitle?: string;
   userName?: string;
   uNumber?: string;
