@@ -66,20 +66,24 @@ export function AcknowledgmentModal({
 
   const actionButtonText = isVersionMismatch
     ? 'Acknowledge Updated Version (Re-sign)'
+    : topic.category === 'WBT' && isPastDeadline
+    ? 'Submit Late WBT Acknowledgment'
     : isPastDeadline && isReadAndSign
     ? 'Submit Overdue Acknowledgment (Remark Attached)'
     : isPastDeadline
     ? 'Submit Late Response'
+    : topic.category === 'WBT'
+    ? 'Acknowledge WBT Directive'
     : isParticipationType
     ? 'Confirm Participation & Understanding'
     : 'Read and Sign Directive';
 
-  const canSubmit = hasAgreedTerms && !isSubmitting && (!isPastDeadline || !isReadAndSign || lateReason.trim().length > 0);
+  const canSubmit = hasAgreedTerms && !isSubmitting && (!isPastDeadline || (!isReadAndSign && topic.category !== 'WBT') || lateReason.trim().length > 0 || topic.category === 'WBT');
 
   const handleSignSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!hasAgreedTerms) return;
-    if (isPastDeadline && isReadAndSign && !lateReason.trim()) return;
+    if (isPastDeadline && isReadAndSign && topic.category !== 'WBT' && !lateReason.trim()) return;
 
     setIsSubmitting(true);
     setTimeout(() => {
@@ -181,9 +185,11 @@ export function AcknowledgmentModal({
                 </span>
               </div>
               <p className="text-xs text-emerald-700">
-                {topic.isClosed
-                  ? 'This compliance session was closed for acknowledgement by station administrator. Participation is verified and permanently confirmed in Cloud Firestore.'
-                  : 'You have confirmed acknowledgment and understanding of this topic under your Microsoft 365 authenticated identity.'}
+                {topic.category === 'WBT' && existingConfirmation?.status !== 'confirmed'
+                    ? 'Your acknowledgement is recorded. Please ensure you have uploaded your certificate to Teams for admin verification to complete the process.'
+                    : topic.isClosed
+                    ? 'This compliance session was closed for acknowledgement by station administrator. Participation is verified and permanently confirmed in Cloud Firestore.'
+                    : 'You have confirmed acknowledgment and understanding of this topic under your Microsoft 365 authenticated identity.'}
               </p>
               {existingConfirmation?.lateReason && (
                 <div className="p-2.5 bg-amber-50/90 border border-amber-200 rounded text-xs text-amber-900 mt-2">
@@ -209,7 +215,12 @@ export function AcknowledgmentModal({
           {/* Form for Acknowledgment & Signing (if not already confirmed) */}
           {!isAlreadyConfirmed && !successReceipt && (
             <form onSubmit={handleSignSubmit} className="space-y-4 pt-2 border-t border-slate-200">
-              {/* If deadline passed, require late reason */}
+              {topic.category === 'WBT' && (
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900">
+                      <strong className="block font-semibold">WBT Acknowledgment Notice:</strong>
+                      <span>After submitting this acknowledgement, you <strong>must</strong> upload your certificate of participation to Teams for admin review and approval.</span>
+                  </div>
+              )}
               {isPastDeadline && (
                 <div className={`p-4 rounded-lg space-y-2 border ${isReadAndSign ? 'bg-rose-50 border-rose-300' : 'bg-amber-50 border-amber-300'}`}>
                   <div className={`flex items-center gap-2 font-bold text-xs ${isReadAndSign ? 'text-rose-900' : 'text-amber-900'}`}>
@@ -269,7 +280,6 @@ export function AcknowledgmentModal({
                 </label>
               </div>
 
-              {/* Locked Read-Only Identity Fields (Requirement 10 & 11: Non-editable identity) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-600 mb-1">

@@ -627,6 +627,7 @@ export async function saveUserToFirestore(user: User): Promise<boolean> {
       isAls: Boolean(user.isAls),
       isLead: Boolean(user.isLead),
       isAdmin: Boolean(user.isAdmin),
+      isSuperAdmin: Boolean(user.isSuperAdmin),
     };
     if (user.loginEmail) payload.loginEmail = user.loginEmail;
     if (user.workEmail) payload.workEmail = user.workEmail;
@@ -686,6 +687,7 @@ export async function saveAllUsersToFirestore(users: User[]): Promise<boolean> {
           isAls: Boolean(u.isAls),
           isLead: Boolean(u.isLead),
           isAdmin: Boolean(u.isAdmin),
+          isSuperAdmin: Boolean(u.isSuperAdmin),
         };
         if (u.loginEmail) payload.loginEmail = u.loginEmail;
         if (u.workEmail) payload.workEmail = u.workEmail;

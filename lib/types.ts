@@ -7,6 +7,10 @@ export type TopicType =
   | 'Training'
   | 'Briefing'
   | 'Role Play'
+  | 'Teams Calls'
+  | 'Ground Ops Community Calls'
+  | 'Vitero Sessions'
+  | 'WBT'
   | 'Others';
 
 export interface User {
@@ -21,6 +25,7 @@ export interface User {
   isAls: boolean;
   isLead: boolean;
   isAdmin: boolean;
+  isSuperAdmin?: boolean; // New superadmin role
   department?: string;
   title?: string;
   accountStatus?: 'active' | 'disabled' | 'suspended';
@@ -50,6 +55,7 @@ export interface Topic {
   id: string;
   title: string;
   type: TopicType;
+  category?: 'Standard' | 'WBT'; // Added category
   customTypeDesc?: string;
   targetGroup: TargetGroup;
   assignedUserIds?: string[]; // Specific staff IDs if chosen
@@ -99,7 +105,7 @@ export interface TopicConfirmation {
   userEmail?: string;
   userName?: string;
   confirmedAt: string; // ISO string
-  status: 'confirmed' | 'pending' | 're_sign_required' | 'pending_late_approval' | 'rejected' | 'not_participated';
+  status: 'confirmed' | 'pending' | 're_sign_required' | 'pending_late_approval' | 'rejected' | 'not_participated' | 'pending_wbt_verification'; // New status
   signatureText?: string;
   ipAddress?: string;
   lateReason?: string; // Remark explaining delay in acknowledgment

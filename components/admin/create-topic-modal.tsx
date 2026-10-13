@@ -32,6 +32,10 @@ const TOPIC_TYPES: TopicType[] = [
   'Training',
   'Briefing',
   'Role Play',
+  'Teams Calls',
+  'Ground Ops Community Calls',
+  'Vitero Sessions',
+  'WBT',
   'Others',
 ];
 
@@ -43,6 +47,7 @@ export function CreateTopicModal({
 }: CreateTopicModalProps) {
   const [title, setTitle] = useState('');
   const [type, setType] = useState<TopicType>('Document Read and Sign');
+  const [category, setCategory] = useState<'Standard' | 'WBT'>('Standard');
   const [customTypeDesc, setCustomTypeDesc] = useState('');
   const [targetGroup, setTargetGroup] = useState<TargetGroup>('ALL');
   const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
@@ -54,20 +59,22 @@ export function CreateTopicModal({
   // Calculate system date as today for default published date and reference
   const todayStr = useMemo(() => getSystemDateString(), []);
 
-  const calculateDueDate = (t: TopicType, pubDate: string): string => {
+  const calculateDueDate = (t: TopicType, pubDate: string, cat: 'Standard' | 'WBT'): string => {
     const d = new Date(pubDate);
     if (isNaN(d.getTime())) return pubDate;
-    const days =
-      t === 'Document Read and Sign' || t === 'GPD/GPI Read and Sign' || t === 'AHD/AHI Read and Sign'
-        ? 15
-        : 2;
+    let days = 2;
+    if (t === 'Document Read and Sign' || t === 'GPD/GPI Read and Sign' || t === 'AHD/AHI Read and Sign') {
+        days = 15;
+    } else if (cat === 'WBT') {
+        days = 15;
+    }
     d.setDate(d.getDate() + days);
     return d.toISOString().split('T')[0];
   };
 
   const [publishedDate, setPublishedDate] = useState<string>(todayStr);
   const [dueDate, setDueDate] = useState<string>(() =>
-    calculateDueDate('Document Read and Sign', todayStr)
+    calculateDueDate('Document Read and Sign', todayStr, 'Standard')
   );
   const [version, setVersion] = useState('v1.0');
   const [formError, setFormError] = useState('');
@@ -89,15 +96,20 @@ export function CreateTopicModal({
     return Math.round(diffTime / (1000 * 60 * 60 * 24));
   }, [publishedDate, todayStr]);
 
+  const handleCategoryChange = (newCategory: 'Standard' | 'WBT') => {
+      setCategory(newCategory);
+      setDueDate(calculateDueDate(type, publishedDate, newCategory));
+  }
+
   const handleTypeChange = (newType: TopicType) => {
     setType(newType);
     if (newType !== 'Others') setCustomTypeDesc('');
-    setDueDate(calculateDueDate(newType, publishedDate));
+    setDueDate(calculateDueDate(newType, publishedDate, category));
   };
 
   const handlePublishedDateChange = (newPubDate: string) => {
     setPublishedDate(newPubDate);
-    setDueDate(calculateDueDate(type, newPubDate));
+    setDueDate(calculateDueDate(type, newPubDate, category));
     // Reset acknowledgment whenever date is changed
     setHasAcknowledgedPastDate(false);
     setFormError('');
@@ -120,6 +132,7 @@ export function CreateTopicModal({
     onSaveTopic({
       title: title.trim(),
       type,
+      category,
       customTypeDesc: type === 'Others' ? customTypeDesc.trim() : undefined,
       targetGroup,
       assignedUserIds: selectedStaffIds.length > 0 ? selectedStaffIds : undefined,
@@ -216,8 +229,8 @@ export function CreateTopicModal({
             />
           </div>
 
-          {/* Row: Type & Target Group */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Row: Type, Category & Target Group */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className="block font-semibold text-slate-800 mb-1">
                 Type (Dropdown) <span className="text-red-500">*</span>
@@ -234,7 +247,21 @@ export function CreateTopicModal({
                 ))}
               </select>
             </div>
-
+            
+            <div>
+              <label className="block font-semibold text-slate-800 mb-1">
+                Category <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={category}
+                onChange={e => handleCategoryChange(e.target.value as 'Standard' | 'WBT')}
+                className="w-full px-3 py-2 text-xs border border-slate-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-[#0078D4]"
+              >
+                <option value="Standard">Standard</option>
+                <option value="WBT">WBT</option>
+              </select>
+            </div>
+            
             <div>
               <label className="block font-semibold text-slate-800 mb-1">
                 Target Group Category <span className="text-red-500">*</span>

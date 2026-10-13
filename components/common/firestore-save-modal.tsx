@@ -21,24 +21,32 @@ interface FirestoreSaveModalProps {
 }
 
 export function FirestoreSaveModal({ confirmation, onClose }: FirestoreSaveModalProps) {
-  const [timeLeft, setTimeLeft] = useState(6);
+  const isWbt = confirmation
+    ? Boolean(confirmation.title.includes('WBT') || (confirmation.statusText && confirmation.statusText.includes('Teams')))
+    : false;
 
+  const [timeLeft, setTimeLeft] = useState(isWbt ? 15 : 6);
+  const onCloseRef = React.useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  // Countdown timer: safely trigger onCloseRef in useEffect when timer reaches 0
   useEffect(() => {
     if (!confirmation) return;
 
-    const timer = setInterval(() => {
-      setTimeLeft(prev => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          onClose();
-          return 6;
-        }
-        return prev - 1;
-      });
+    if (timeLeft <= 0) {
+      onCloseRef.current();
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setTimeLeft(prev => Math.max(0, prev - 1));
     }, 1000);
 
-    return () => clearInterval(timer);
-  }, [confirmation, onClose]);
+    return () => clearTimeout(timer);
+  }, [confirmation, timeLeft]);
 
   if (!confirmation) return null;
 
@@ -49,20 +57,28 @@ export function FirestoreSaveModal({ confirmation, onClose }: FirestoreSaveModal
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
       <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden transform transition-all animate-in zoom-in-95 duration-200">
         {/* Header gradient banner */}
-        <div className="bg-linear-to-r from-emerald-600 via-teal-600 to-[#0078D4] p-5 text-white flex items-start justify-between">
+        <div className={`p-5 text-white flex items-start justify-between ${
+          isWbt
+            ? 'bg-linear-to-r from-blue-700 via-indigo-600 to-[#0078D4]'
+            : 'bg-linear-to-r from-emerald-600 via-teal-600 to-[#0078D4]'
+        }`}>
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-xl bg-white/15 backdrop-blur-md border border-white/25 flex items-center justify-center shadow-inner">
               <Cloud className="w-6 h-6 text-white animate-pulse" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-bold text-base tracking-tight">Saved to Firestore</h3>
+                <h3 className="font-bold text-base tracking-tight">
+                  {isWbt ? 'WBT Acknowledgment Logged' : 'Saved to Firestore'}
+                </h3>
                 <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-white/20 text-white">
-                  Cloud Live
+                  {isWbt ? 'Action Required' : 'Cloud Live'}
                 </span>
               </div>
-              <p className="text-xs text-emerald-100/90 mt-0.5">
-                Data committed directly to Firestore database · Zero browser storage
+              <p className="text-xs text-white/90 mt-0.5">
+                {isWbt
+                  ? 'Directive acknowledgment logged · Certificate verification pending'
+                  : 'Data committed directly to Firestore database · Zero browser storage'}
               </p>
             </div>
           </div>
@@ -78,13 +94,17 @@ export function FirestoreSaveModal({ confirmation, onClose }: FirestoreSaveModal
         {/* Content Body */}
         <div className="p-6 space-y-4 text-xs">
           {/* Main Success Banner */}
-          <div className="flex items-start gap-3 p-3.5 bg-emerald-50/80 border border-emerald-200 rounded-xl">
-            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+          <div className={`flex items-start gap-3 p-3.5 rounded-xl border ${
+            isWbt
+              ? 'bg-blue-50/90 border-blue-200'
+              : 'bg-emerald-50/80 border-emerald-200'
+          }`}>
+            <CheckCircle2 className={`w-5 h-5 shrink-0 mt-0.5 ${isWbt ? 'text-blue-600' : 'text-emerald-600'}`} />
             <div className="space-y-1">
-              <h4 className="font-bold text-emerald-950 text-sm">
+              <h4 className={`font-bold text-sm ${isWbt ? 'text-blue-950' : 'text-emerald-950'}`}>
                 {confirmation.title}
               </h4>
-              <p className="text-emerald-800 text-xs leading-relaxed">
+              <p className={`text-xs leading-relaxed ${isWbt ? 'text-blue-900' : 'text-emerald-800'}`}>
                 {confirmation.statusText || (
                   isAck
                     ? 'Your read & sign acknowledgment and digital signature were permanently recorded in Firestore.'
@@ -95,6 +115,34 @@ export function FirestoreSaveModal({ confirmation, onClose }: FirestoreSaveModal
               </p>
             </div>
           </div>
+
+          {/* WBT Teams Upload Notice & Link */}
+          {isWbt && (
+            <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-indigo-950 text-xs">
+                  Mandatory Certificate Upload via Microsoft Teams
+                </span>
+                <span className="text-[10px] font-semibold bg-indigo-200 text-indigo-800 px-2 py-0.5 rounded-full">
+                  Step 2 of 2
+                </span>
+              </div>
+              <p className="text-indigo-900 text-xs leading-relaxed">
+                Please upload your certificate of participation to <strong>Microsoft Teams</strong> immediately. The SuperAdmin will verify the certificate and only then will your participation be confirmed.
+              </p>
+              <div className="pt-2">
+                <a
+                  href="https://teams.microsoft.com"
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#4f52b2] hover:bg-[#44469b] text-white text-xs font-semibold rounded-lg transition shadow-xs"
+                >
+                  <span>Open Microsoft Teams to Upload</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </a>
+              </div>
+            </div>
+          )}
 
           {/* Details Table */}
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 divide-y divide-slate-150 space-y-2 text-xs">

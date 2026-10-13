@@ -93,12 +93,13 @@ export function UserDashboard({
         pending.push(t);
       }
 
-      // Overdue check for Read & Sign documents
-      const isReadAndSign =
+      // Overdue check for Read & Sign documents and WBT topics
+      const isOverdueEligible =
         t.type === 'Document Read and Sign' ||
         t.type === 'GPD/GPI Read and Sign' ||
-        t.type === 'AHD/AHI Read and Sign';
-      if (isReadAndSign && status !== 'confirmed' && t.dueDate && t.dueDate < todayStr && !t.isClosed) {
+        t.type === 'AHD/AHI Read and Sign' ||
+        t.category === 'WBT';
+      if (isOverdueEligible && status !== 'confirmed' && t.dueDate && t.dueDate < todayStr && !t.isClosed) {
         overdue.push(t);
       }
     });
@@ -343,6 +344,18 @@ export function UserDashboard({
           </div>
       </div>
 
+      {/* Always Visible Search Bar */}
+      <div className="bg-white border border-slate-200 rounded-xl shadow-xs p-4 flex items-center gap-3">
+        <Search className="w-5 h-5 text-slate-400 shrink-0" />
+        <input
+          type="text"
+          placeholder="Quick search: Filter by topic title or type..."
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          className="flex-1 text-sm bg-transparent focus:outline-none placeholder:text-slate-400"
+        />
+      </div>
+
       {/* Filter and Tab Controls (Collapsible, default collapsed) */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden transition">
         {/* Collapsible Header */}
@@ -451,17 +464,7 @@ export function UserDashboard({
             </button>
           </div>
 
-          {/* Search bar */}
-          <div className="relative w-full sm:w-64">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-            <input
-              type="text"
-              placeholder="Filter by title or type..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#0078D4]"
-            />
-          </div>
+
         </div>
 
         {/* Target Group Filter row - Clickable Filter Boxes */}

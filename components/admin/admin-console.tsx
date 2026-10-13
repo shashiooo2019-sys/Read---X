@@ -40,6 +40,7 @@ import {
   Settings,
   Cloud,
   X,
+  ExternalLink,
 } from 'lucide-react';
 import { saveAllTopicsAndAssignmentsToFirestore } from '@/lib/firebase';
 
@@ -63,6 +64,9 @@ const ALL_TOPIC_TYPES: TopicType[] = [
   'Training',
   'Briefing',
   'Role Play',
+  'Teams Calls',
+  'Ground Ops Community Calls',
+  'Vitero Sessions',
   'Others',
 ];
 
@@ -331,6 +335,138 @@ export function AdminConsole({
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+      {currentUser.isSuperAdmin && (
+        <div id="superadmin-wbt-section" className="bg-linear-to-r from-blue-50 to-indigo-50/70 border border-blue-200 p-5 rounded-2xl shadow-xs space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="p-1 rounded-md bg-blue-600 text-white">
+                  <Shield className="w-3.5 h-3.5" />
+                </span>
+                <h2 className="text-sm font-bold text-blue-950">
+                  SuperAdmin: Pending WBT Certificate &amp; Participation Verifications
+                </h2>
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-200/80 text-blue-900 font-mono">
+                  {confirmations.filter(c => c.status === 'pending_wbt_verification').length} Pending
+                </span>
+              </div>
+              <p className="text-xs text-blue-800 mt-1 leading-relaxed">
+                Staff have submitted acknowledgments for Web-Based Training (WBT). Check each user&apos;s certificate in <strong>Microsoft Teams</strong>, then verify acknowledgment. Only upon verification will staff be officially confirmed.
+              </p>
+            </div>
+
+            <a
+              href="https://teams.microsoft.com"
+              target="_blank"
+              rel="noreferrer noopener"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#4f52b2] hover:bg-[#44469b] text-white text-xs font-semibold rounded-xl transition shadow-xs shrink-0 self-start sm:self-center"
+            >
+              <span>Open Microsoft Teams</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          </div>
+
+          {confirmations.filter(c => c.status === 'pending_wbt_verification').length === 0 ? (
+            <div className="p-4 bg-white/80 border border-blue-100 rounded-xl text-center text-xs text-blue-700">
+              ✓ All WBT acknowledgments are verified. No pending certificates awaiting SuperAdmin review.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {confirmations
+                .filter(c => c.status === 'pending_wbt_verification')
+                .map(conf => {
+                  const topic = topics.find(t => t.id === conf.topicId);
+                  return (
+                    <div
+                      key={conf.id}
+                      className="bg-white border border-blue-100 p-4 rounded-xl shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4"
+                    >
+                      <div className="space-y-1.5 min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-bold text-slate-900 text-xs">
+                            {conf.userName}
+                          </span>
+                          <span className="font-mono text-[11px] text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded border border-slate-200">
+                            {conf.userEmail || 'Staff'}
+                          </span>
+                          <span className="text-[10px] font-bold text-blue-700 bg-blue-100 px-1.5 py-0.2 rounded">
+                            {topic?.category || 'WBT'} · {topic?.type || 'Web-Based Training'}
+                          </span>
+                          {conf.isLate && (
+                            <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-1.5 py-0.2 rounded flex items-center gap-1">
+                              <AlertTriangle className="w-3 h-3 text-amber-600" />
+                              <span>Late Acknowledgment</span>
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="text-xs text-slate-700 font-medium">
+                          Directive: <strong className="text-slate-900">{conf.documentTitle || topic?.title || 'WBT Topic'}</strong>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
+                          <span>
+                            Submitted: <strong className="text-slate-700">{new Date(conf.confirmedAt).toLocaleString()}</strong>
+                          </span>
+                          {topic?.dueDate && (
+                            <span>
+                              Deadline: <strong className="text-slate-700">{topic.dueDate}</strong>
+                            </span>
+                          )}
+                        </div>
+
+                        {conf.lateReason && (
+                          <div className="text-[11px] text-amber-900 bg-amber-50 p-2 rounded border border-amber-200">
+                            <span className="font-semibold block text-[10px] text-amber-800">Staff Delay Remark:</span>
+                            &ldquo;{conf.lateReason}&rdquo;
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        <a
+                          href="https://teams.microsoft.com"
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition border border-slate-200 flex items-center gap-1"
+                        >
+                          <span>Check in Teams</span>
+                          <ExternalLink className="w-3 h-3 text-slate-500" />
+                        </a>
+
+                        <button
+                          onClick={() => {
+                            const reason = prompt('Enter rejection reason (e.g. Certificate not found in Teams):', 'Certificate not verified in Teams');
+                            if (reason !== null) {
+                              onUpdateConfirmation?.(conf.id, 'rejected', reason || 'Certificate not verified in Teams');
+                            }
+                          }}
+                          className="px-3 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-lg transition border border-rose-200 cursor-pointer"
+                        >
+                          Reject
+                        </button>
+
+                        <button
+                          onClick={() =>
+                            onUpdateConfirmation?.(
+                              conf.id,
+                              'confirmed',
+                              'Certificate verified in Microsoft Teams by SuperAdmin'
+                            )
+                          }
+                          className="px-4 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition shadow-xs flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Verify &amp; Confirm Participation</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
+        </div>
+      )}
       {/* Firestore Sync Notification */}
       {syncMessage && (
         <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center justify-between shadow-xs transition animate-in fade-in">

@@ -13,6 +13,19 @@ export const INITIAL_STAFF_ROSTER: User[] = [
     department: 'System Administration',
     title: 'System Administrator'
   },
+  // SuperAdmin Account
+  {
+    id: 'u-superadmin',
+    uNumber: 'SUPERADMIN',
+    name: 'Super Administrator',
+    email: 'superadmin@compliance.system',
+    isAls: true,
+    isLead: true,
+    isAdmin: true,
+    isSuperAdmin: true,
+    department: 'System Administration',
+    title: 'Super Administrator'
+  },
   // Page 1
   {
     id: 'u-086936',

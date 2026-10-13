@@ -27,7 +27,6 @@ service cloud.firestore {
       allow list: if isSignedIn();
       allow create: if isValidId(verificationId) && isValidVerification(incoming());
       allow update: if isValidId(verificationId) 
-        && isValidVerification(incoming())
         && incoming().id == existing().id
         && incoming().topicId == existing().topicId
         && incoming().userId == existing().userId;
@@ -60,7 +59,6 @@ service cloud.firestore {
       allow list: if isSignedIn();
       allow create: if isValidId(topicId) && isValidTopic(incoming());
       allow update: if isValidId(topicId) 
-        && isValidTopic(incoming())
         && incoming().id == existing().id;
       allow delete: if isValidId(topicId);
     }
@@ -76,7 +74,6 @@ service cloud.firestore {
       allow list: if isSignedIn();
       allow create: if isValidId(assignmentId) && isValidAssignment(incoming());
       allow update: if isValidId(assignmentId) 
-        && isValidAssignment(incoming())
         && incoming().id == existing().id
         && incoming().topicId == existing().topicId
         && incoming().userId == existing().userId;

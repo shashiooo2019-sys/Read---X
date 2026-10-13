@@ -555,14 +555,14 @@ export function GoogleLogin({ onLoginSuccess, rosterUsers }: GoogleLoginProps) {
                       type="text"
                       value={adminUsername}
                       onChange={(e) => setAdminUsername(e.target.value)}
-                      placeholder="Admin Username (admin)"
+                      placeholder="Username (admin or superadmin)"
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
                     />
                     <input
                       type="password"
                       value={adminPassword}
                       onChange={(e) => setAdminPassword(e.target.value)}
-                      placeholder="Admin Password (Admin220!)"
+                      placeholder="Password (Admin220! or SuperAdmin220!)"
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
                     />
                     <button

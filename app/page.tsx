@@ -38,6 +38,7 @@ import { StaffRosterView } from '@/components/admin/staff-roster-view';
 import { ReportsView } from '@/components/admin/reports-view';
 import { FirestoreSaveModal, FirestoreConfirmationDetails } from '@/components/common/firestore-save-modal';
 
+
 export default function Home() {
   const mounted = React.useSyncExternalStore(
     () => () => {},
@@ -52,6 +53,14 @@ export default function Home() {
   const [sessionChecking, setSessionChecking] = useState(true);
   const [activeTab, setActiveTab] = useState<'my-compliance' | 'admin-console' | 'staff-roster' | 'reports'>('my-compliance');
   const [firestoreConfirmation, setFirestoreConfirmation] = useState<FirestoreConfirmationDetails | null>(null);
+  const handleCloseFirestoreConfirmation = React.useCallback(() => {
+    setFirestoreConfirmation(null);
+  }, []);
+
+
+
+
+
 
   // Verify server session on load (Zero browser storage, authenticated session check)
   useEffect(() => {
@@ -118,6 +127,7 @@ export default function Home() {
   const handleLoginSuccess = (user: User) => {
     setCurrentUser(user);
     setCurrentUserId(user.id);
+
     if (user.isAdmin) {
       setActiveTab('admin-console');
     } else {
@@ -326,7 +336,7 @@ export default function Home() {
 
     const todayStr = new Date().toISOString().split('T')[0];
     const isPastDeadline = Boolean(topic && topic.dueDate && topic.dueDate < todayStr);
-    const status = 'confirmed';
+    const status = topic?.category === 'WBT' ? 'pending_wbt_verification' : 'confirmed';
 
     const newConf: TopicConfirmation = {
       id: `conf-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -363,17 +373,22 @@ export default function Home() {
     try {
       await saveVerificationToFirestore(newConf);
       // Trigger confirmation pop-up
+      const isWbt = topic?.category === 'WBT';
       setFirestoreConfirmation({
-        title: isPastDeadline ? 'Overdue Compliance Acknowledgment Saved to Firestore' : 'Compliance Acknowledgment Saved to Firestore',
+        title: isWbt 
+          ? 'WBT Acknowledgment Submitted - Please Upload Certificate' 
+          : (isPastDeadline ? 'Overdue Compliance Acknowledgment Saved to Firestore' : 'Compliance Acknowledgment Saved to Firestore'),
         recordType: 'acknowledgment',
         topicTitle: topic ? topic.title : topicId,
         userName: currentUser.name,
         uNumber: currentUser.uNumber,
         collections: ['compliance_verifications', 'topic_assignments'],
         timestamp: newConf.confirmedAt,
-        statusText: isPastDeadline
-          ? `Overdue directive "${topic?.title || topicId}" was acknowledged with mandatory reason for delay ("${lateReason?.trim()}"). Permanently saved to Cloud Firestore. Zero browser storage.`
-          : `Acknowledgment and digital signature for "${topic?.title || topicId}" were permanently saved to Cloud Firestore. Zero browser storage.`,
+        statusText: isWbt
+          ? `Acknowledgment recorded. You must now upload your certificate of participation to Teams for admin verification to complete the process. Status is currently: Pending Verification.`
+          : (isPastDeadline
+            ? `Overdue directive "${topic?.title || topicId}" was acknowledged with mandatory reason for delay ("${lateReason?.trim()}"). Permanently saved to Cloud Firestore. Zero browser storage.`
+            : `Acknowledgment and digital signature for "${topic?.title || topicId}" were permanently saved to Cloud Firestore. Zero browser storage.`),
       });
     } catch (err) {
       console.warn('Firebase direct verification save notice:', err);
@@ -512,7 +527,7 @@ export default function Home() {
     }
   };
 
-  // Admin review handler for late approval (Accept / Reject)
+  // Admin review handler for late approval & WBT certificate verification (Accept / Reject)
   const handleUpdateConfirmation = async (confirmationId: string, newStatus: 'confirmed' | 'rejected', reviewNote?: string) => {
     let targetConf: TopicConfirmation | undefined;
     const updated = confirmations.map(c => {
@@ -520,9 +535,10 @@ export default function Home() {
         const revised: TopicConfirmation = {
           ...c,
           status: newStatus,
-          reviewedBy: currentUser?.email,
+          reviewedBy: currentUser?.email || 'SuperAdmin',
           reviewedAt: new Date().toISOString(),
           adminReviewNote: reviewNote,
+
         };
         targetConf = revised;
         return revised;
@@ -549,6 +565,8 @@ export default function Home() {
       }
     }
   };
+
+
 
   if (!mounted || sessionChecking) {
     return (
@@ -654,9 +672,11 @@ export default function Home() {
         <FirestoreSaveModal
           key={firestoreConfirmation.timestamp || firestoreConfirmation.title}
           confirmation={firestoreConfirmation}
-          onClose={() => setFirestoreConfirmation(null)}
+          onClose={handleCloseFirestoreConfirmation}
         />
       )}
+
+
     </div>
   );
 }
