@@ -3,6 +3,7 @@
 import { User, Topic, TopicConfirmation, TargetGroup, TopicType, DateFilterType, DateFilterOptions } from './types';
 import { INITIAL_STAFF_ROSTER } from './roster-data';
 import { INITIAL_TOPICS, generateInitialConfirmations } from './initial-topics';
+import { normalizeTopicDirectiveKey, resolveStaffUserId } from './topic-participation-importer';
 import {
   saveVerificationToFirestore,
   saveAllVerificationsToFirestore,
@@ -86,8 +87,34 @@ export function getStoredTopics(): Topic[] {
   return inMemoryTopics;
 }
 
+export function deduplicateTopicsByTitle(topics: Topic[]): Topic[] {
+  const map = new Map<string, Topic>();
+  topics.forEach(t => {
+    const key = normalizeTopicDirectiveKey(t.title);
+    if (!map.has(key)) {
+      map.set(key, { ...t });
+    } else {
+      const existing = map.get(key)!;
+      if (t.targetGroup === 'ALL' || existing.targetGroup === 'ALL') {
+        existing.targetGroup = 'ALL';
+      } else if (
+        t.targetGroup === 'ALS_AND_LEAD' || existing.targetGroup === 'ALS_AND_LEAD' ||
+        (existing.targetGroup === 'ALS' && t.targetGroup === 'Lead') ||
+        (existing.targetGroup === 'Lead' && t.targetGroup === 'ALS')
+      ) {
+        existing.targetGroup = 'ALS_AND_LEAD';
+      }
+      const combined = Array.from(new Set([...(existing.assignedUserIds || []), ...(t.assignedUserIds || [])]));
+      existing.assignedUserIds = combined;
+    }
+  });
+  return Array.from(map.values());
+}
+
 export function saveTopics(topics: Topic[], users?: User[]) {
-  const sanitized = topics.filter(t => !TEST_TOPIC_IDS.has(t.id) && !t.id?.startsWith('top-10'));
+  const sanitized = deduplicateTopicsByTitle(
+    topics.filter(t => !TEST_TOPIC_IDS.has(t.id) && !t.id?.startsWith('top-10'))
+  );
   inMemoryTopics = sanitized;
   if (isBrowser) {
     window.dispatchEvent(new Event('read_and_sign_data_changed'));
@@ -107,9 +134,9 @@ export async function syncTopicsWithFirebase(users?: User[]): Promise<Topic[]> {
     const remote = await fetchTopicsFromFirestore();
     const roster = users || inMemoryUsers;
 
-    // Filter out test topics
-    const cleanRemote = remote.filter(
-      t => !TEST_TOPIC_IDS.has(t.id) && !t.id?.startsWith('top-10')
+    // Filter out test topics and deduplicate by title (one row per topic)
+    const cleanRemote = deduplicateTopicsByTitle(
+      remote.filter(t => !TEST_TOPIC_IDS.has(t.id) && !t.id?.startsWith('top-10'))
     );
 
     inMemoryTopics = cleanRemote;
@@ -238,13 +265,87 @@ export function isTopicPastPublished(topic: Topic, todayDate: string = getSystem
 // - Lead: Only Lead (plus any individually selected staff)
 // - ALS_AND_LEAD: Personnel marked ALS or Lead (plus any individually selected staff)
 // - CUSTOM: Only specifically selected staff in assignedUserIds
+// Robust matching helper to check if a confirmation belongs to a specific user
+export function isConfirmationForStaff(c: TopicConfirmation, u: User): boolean {
+  if (c.userId === u.id) return true;
+
+  // 1. Normalized U-Number comparison (stripping leading 'u'/'U', dashes, underscores, spaces)
+  const cUNum = (c.uNumber || '').replace(/^U[-_\s]*/i, '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  const uUNum = (u.uNumber || '').replace(/^U[-_\s]*/i, '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  if (cUNum && uUNum && cUNum === uUNum) return true;
+
+  // 2. Direct ID digits comparison
+  const cClean = c.userId ? c.userId.toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+  const uClean = u.id ? u.id.toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+  if (cClean && uClean && cClean === uClean) return true;
+  if (cClean.replace(/^u+/g, '') === uClean.replace(/^u+/g, '') && cClean.replace(/^u+/g, '').length > 0) return true;
+
+  if (uUNum && cClean.includes(uUNum)) return true;
+  if (cUNum && uClean.includes(cUNum)) return true;
+
+  // 3. Email matching (exact or prefix before @)
+  if (c.userEmail && u.email) {
+    const cMail = c.userEmail.trim().toLowerCase();
+    const uMail = u.email.trim().toLowerCase();
+    if (cMail === uMail) return true;
+    if (cMail.includes('@') && uMail.includes('@') && cMail.split('@')[0] === uMail.split('@')[0]) return true;
+  }
+
+  // 4. Name matching (exact or normalized word tokens)
+  if (c.userName && u.name) {
+    const cNorm = c.userName.trim().toUpperCase().replace(/[^A-Z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+    const uNorm = u.name.trim().toUpperCase().replace(/[^A-Z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (cNorm && uNorm) {
+      if (cNorm === uNorm) return true;
+      const cSorted = cNorm.split(' ').sort().join(' ');
+      const uSorted = uNorm.split(' ').sort().join(' ');
+      if (cSorted === uSorted) return true;
+    }
+  }
+
+  return false;
+}
+
+// Robust matching helper to check if a confirmation belongs to a topic
+export function isConfirmationForTopic(c: TopicConfirmation, topic: Topic, allTopics?: Topic[]): boolean {
+  if (c.topicId === topic.id) return true;
+  if (c.documentId === topic.id) return true;
+  const topicDirectiveKey = normalizeTopicDirectiveKey(topic.title);
+  if (c.documentTitle && normalizeTopicDirectiveKey(c.documentTitle) === topicDirectiveKey) return true;
+  if (c.topicId && normalizeTopicDirectiveKey(c.topicId) === topicDirectiveKey) return true;
+
+  // If topic has an alias in allTopics or inMemoryTopics whose title matches
+  const pool = allTopics && allTopics.length > 0 ? allTopics : inMemoryTopics;
+  if (pool && pool.length > 0 && c.topicId) {
+    const orig = pool.find(t => t.id === c.topicId);
+    if (orig && normalizeTopicDirectiveKey(orig.title) === topicDirectiveKey) return true;
+  }
+  return false;
+}
+
+// Target group eligibility logic:
+// - ALL: Everyone
+// - ALS: Only ALS (plus any individually selected staff)
+// - Lead: Only Lead (plus any individually selected staff)
+// - ALS_AND_LEAD: Personnel marked ALS or Lead (plus any individually selected staff)
+// - CUSTOM: Only specifically selected staff in assignedUserIds
 export function isUserEligibleForTopic(user: User, topic: Topic): boolean {
+  const isAssignedDirectly = Boolean(
+    topic.assignedUserIds && (
+      topic.assignedUserIds.includes(user.id) ||
+      (user.uNumber && topic.assignedUserIds.includes(user.uNumber)) ||
+      (user.uNumber && topic.assignedUserIds.includes(`u-${user.uNumber.toLowerCase()}`)) ||
+      (user.uNumber && topic.assignedUserIds.includes(`u-u${user.uNumber.replace(/^u/i, '').toLowerCase()}`)) ||
+      (user.uNumber && topic.assignedUserIds.some(id => id.toLowerCase().includes(user.uNumber.replace(/^u/i, '').toLowerCase())))
+    )
+  );
+
   // If targetGroup is CUSTOM, ONLY specifically assigned staff are eligible
   if (topic.targetGroup === 'CUSTOM') {
-    return Boolean(topic.assignedUserIds && topic.assignedUserIds.includes(user.id));
+    return isAssignedDirectly;
   }
   // If specific individual staff members are explicitly assigned in addition to group:
-  if (topic.assignedUserIds && topic.assignedUserIds.includes(user.id)) {
+  if (isAssignedDirectly) {
     return true;
   }
   if (topic.targetGroup === 'ALL') return true;
@@ -283,14 +384,30 @@ export function isInteractiveSessionTopic(topic: Topic): boolean {
   );
 }
 
-export function getUserTopicStatus(topic: Topic, userId: string, confirmations: TopicConfirmation[]): UserTopicStatus {
-  const conf = confirmations.find(c => c.topicId === topic.id && c.userId === userId);
+export function getUserTopicStatus(
+  topic: Topic,
+  userOrId: string | User,
+  confirmations: TopicConfirmation[],
+  users?: User[]
+): UserTopicStatus {
+  const user: User | undefined = typeof userOrId === 'object'
+    ? userOrId
+    : (users || inMemoryUsers).find(u => u.id === userOrId || u.uNumber === userOrId);
+
+  const conf = confirmations.find(c => {
+    if (!isConfirmationForTopic(c, topic)) return false;
+    if (user) return isConfirmationForStaff(c, user);
+    return c.userId === userOrId;
+  });
+
   if (conf) {
     if (conf.status === 'pending_late_approval') return 'pending_late_approval';
     if (conf.status === 'rejected') return 'rejected';
     if (conf.status === 'not_participated') return 'not_participated';
     // If version has changed since confirmation: Re-sign required (unless closed)
-    if (topic.version && conf.documentVersion && conf.documentVersion !== topic.version && !topic.isClosed) {
+    const normTopicVer = (topic.version || '').replace(/^v/i, '').trim();
+    const normDocVer = (conf.documentVersion || '').replace(/^v/i, '').trim();
+    if (normTopicVer && normDocVer && normDocVer !== normTopicVer && !topic.isClosed) {
       return 're_sign_required';
     }
     return conf.status === 'confirmed' ? 'confirmed' : 'pending';
@@ -308,15 +425,29 @@ export function getUserTopicStatus(topic: Topic, userId: string, confirmations: 
 // Confirmation state for user on a topic
 export function isTopicConfirmedByUser(
   topicOrId: Topic | string,
-  userId: string,
-  confirmations: TopicConfirmation[]
+  userOrId: User | string,
+  confirmations: TopicConfirmation[],
+  users?: User[]
 ): boolean {
   const topicId = typeof topicOrId === 'string' ? topicOrId : topicOrId.id;
-  const topicVersion = typeof topicOrId === 'string' ? undefined : topicOrId.version;
-  const isClosed = typeof topicOrId === 'string' ? false : Boolean(topicOrId.isClosed);
-  const closedOption = typeof topicOrId === 'string' ? undefined : topicOrId.closedOption;
+  const topic = typeof topicOrId === 'object'
+    ? topicOrId
+    : (inMemoryTopics.find(t => t.id === topicId) || ({ id: topicId, title: topicId } as Topic));
+  const topicVersion = topic.version;
+  const isClosed = Boolean(topic.isClosed);
+  const closedOption = topic.closedOption;
 
-  const conf = confirmations.find(c => c.topicId === topicId && c.userId === userId);
+  const user: User | undefined = typeof userOrId === 'object'
+    ? userOrId
+    : (users || inMemoryUsers).find(u => u.id === userOrId || u.uNumber === userOrId);
+
+  const userConfs = confirmations.filter(c => {
+    if (!isConfirmationForTopic(c, topic)) return false;
+    if (user) return isConfirmationForStaff(c, user);
+    return c.userId === userOrId;
+  });
+
+  const conf = userConfs.find(c => c.status === 'confirmed') || userConfs[0];
 
   if (isClosed) {
     if (conf?.status === 'not_participated') return false;
@@ -329,8 +460,12 @@ export function isTopicConfirmedByUser(
   if (!conf || conf.status !== 'confirmed') return false;
 
   // If topic version was provided and does not match signed version, re-sign is required
-  if (topicVersion && conf.documentVersion && conf.documentVersion !== topicVersion) {
-    return false;
+  if (topicVersion && conf.documentVersion) {
+    const normTopicVer = topicVersion.replace(/^v/i, '').trim();
+    const normDocVer = conf.documentVersion.replace(/^v/i, '').trim();
+    if (normTopicVer && normDocVer && normTopicVer !== normDocVer) {
+      return false;
+    }
   }
 
   return true;
@@ -338,10 +473,22 @@ export function isTopicConfirmedByUser(
 
 export function getConfirmationRecord(
   topicId: string,
-  userId: string,
-  confirmations: TopicConfirmation[]
+  userOrId: string | User,
+  confirmations: TopicConfirmation[],
+  users?: User[]
 ): TopicConfirmation | undefined {
-  return confirmations.find(c => c.topicId === topicId && c.userId === userId);
+  const topic = inMemoryTopics.find(t => t.id === topicId) || ({ id: topicId, title: topicId } as Topic);
+  const user: User | undefined = typeof userOrId === 'object'
+    ? userOrId
+    : (users || inMemoryUsers).find(u => u.id === userOrId || u.uNumber === userOrId);
+
+  const matched = confirmations.filter(c => {
+    if (!isConfirmationForTopic(c, topic)) return false;
+    if (user) return isConfirmationForStaff(c, user);
+    return c.userId === userOrId;
+  });
+
+  return matched.find(c => c.status === 'confirmed') || matched[0];
 }
 
 // Topic statistics for Admin dashboard
@@ -369,21 +516,26 @@ export function calculateTopicStats(
   users: User[],
   confirmations: TopicConfirmation[]
 ): TopicComplianceStats {
-  const eligibleStaff = users.filter(u => isUserEligibleForTopic(u, topic));
+  const topicConfirmations = confirmations.filter(c => isConfirmationForTopic(c, topic, inMemoryTopics));
 
-  const confirmedMap = new Map<string, TopicConfirmation>();
-  const pendingLateMap = new Map<string, TopicConfirmation>();
-  const rejectedMap = new Map<string, TopicConfirmation>();
-  const notParticipatedMap = new Map<string, TopicConfirmation>();
+  // Determine eligible staff:
+  // Staff who are eligible by group/custom assignment, PLUS any staff member who has a confirmation record for this topic
+  const eligibleStaffMap = new Map<string, User>();
 
-  confirmations
-    .filter(c => c.topicId === topic.id)
-    .forEach(c => {
-      if (c.status === 'confirmed') confirmedMap.set(c.userId, c);
-      else if (c.status === 'pending_late_approval') pendingLateMap.set(c.userId, c);
-      else if (c.status === 'rejected') rejectedMap.set(c.userId, c);
-      else if (c.status === 'not_participated') notParticipatedMap.set(c.userId, c);
-    });
+  users.forEach(u => {
+    if (isUserEligibleForTopic(u, topic)) {
+      eligibleStaffMap.set(u.id, u);
+    }
+  });
+
+  topicConfirmations.forEach(c => {
+    const matchedUser = users.find(u => isConfirmationForStaff(c, u));
+    if (matchedUser && !eligibleStaffMap.has(matchedUser.id)) {
+      eligibleStaffMap.set(matchedUser.id, matchedUser);
+    }
+  });
+
+  const eligibleStaff = Array.from(eligibleStaffMap.values());
 
   const confirmedStaff: { user: User; confirmation: TopicConfirmation }[] = [];
   const missingStaff: User[] = [];
@@ -393,26 +545,35 @@ export function calculateTopicStats(
   const notParticipatedStaff: { user: User; confirmation?: TopicConfirmation }[] = [];
 
   eligibleStaff.forEach(u => {
-    const conf = confirmedMap.get(u.id);
-    const pendingConf = pendingLateMap.get(u.id);
-    const rejConf = rejectedMap.get(u.id);
-    const notPartConf = notParticipatedMap.get(u.id);
+    const userConfs = topicConfirmations.filter(c => isConfirmationForStaff(c, u));
+    const confirmedConf = userConfs.find(c => c.status === 'confirmed');
+    const pendingLateConf = userConfs.find(c => c.status === 'pending_late_approval');
+    const notPartConf = userConfs.find(c => c.status === 'not_participated');
+    const rejectedConf = userConfs.find(c => c.status === 'rejected');
+    const conf = confirmedConf || pendingLateConf || notPartConf || rejectedConf || userConfs[0];
 
-    if (conf) {
-      if (topic.version && conf.documentVersion && conf.documentVersion !== topic.version) {
-        reSignRequiredStaff.push({ user: u, confirmation: conf });
+    if (confirmedConf) {
+      // Confirmed record found
+      const normTopicVer = (topic.version || '').replace(/^v/i, '').trim();
+      const normDocVer = (confirmedConf.documentVersion || '').replace(/^v/i, '').trim();
+      if (normTopicVer && normDocVer && normDocVer !== normTopicVer) {
+        reSignRequiredStaff.push({ user: u, confirmation: confirmedConf });
         missingStaff.push(u);
       } else {
-        confirmedStaff.push({ user: u, confirmation: conf });
+        confirmedStaff.push({ user: u, confirmation: confirmedConf });
       }
-    } else if (notPartConf) {
-      notParticipatedStaff.push({ user: u, confirmation: notPartConf });
-    } else if (pendingConf) {
-      pendingLateStaff.push({ user: u, confirmation: pendingConf });
-      missingStaff.push(u);
-    } else if (rejConf) {
-      rejectedStaff.push({ user: u, confirmation: rejConf });
-      missingStaff.push(u);
+    } else if (conf) {
+      if (conf.status === 'not_participated') {
+        notParticipatedStaff.push({ user: u, confirmation: conf });
+      } else if (conf.status === 'pending_late_approval') {
+        pendingLateStaff.push({ user: u, confirmation: conf });
+        missingStaff.push(u);
+      } else if (conf.status === 'rejected') {
+        rejectedStaff.push({ user: u, confirmation: conf });
+        missingStaff.push(u);
+      } else {
+        missingStaff.push(u);
+      }
     } else {
       missingStaff.push(u);
     }
@@ -420,7 +581,6 @@ export function calculateTopicStats(
 
   if (topic.isClosed) {
     if (topic.closedOption === 'mark_not_participated') {
-      // Missing staff are designated as Not Participated
       missingStaff.forEach(u => {
         if (!notParticipatedStaff.some(np => np.user.id === u.id)) {
           notParticipatedStaff.push({ user: u });
@@ -430,7 +590,6 @@ export function calculateTopicStats(
       reSignRequiredStaff.length = 0;
       pendingLateStaff.length = 0;
     } else {
-      // Default: mark remaining staff as participated
       eligibleStaff.forEach(u => {
         const alreadyConfirmed = confirmedStaff.some(c => c.user.id === u.id);
         if (!alreadyConfirmed) {

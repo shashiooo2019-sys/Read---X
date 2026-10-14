@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { CheckCircle2, Cloud, Database, X, ShieldCheck, ArrowRight, Layers } from 'lucide-react';
+import { CheckCircle2, Cloud, Database, X, ShieldCheck, ArrowRight, Layers, ExternalLink } from 'lucide-react';
+import { WBT_TEAMS_UPLOAD_URL } from '@/lib/types';
 
 export interface FirestoreConfirmationDetails {
   title: string;
@@ -118,27 +119,27 @@ export function FirestoreSaveModal({ confirmation, onClose }: FirestoreSaveModal
 
           {/* WBT Teams Upload Notice & Link */}
           {isWbt && (
-            <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl space-y-2">
+            <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl space-y-2.5">
               <div className="flex items-center justify-between">
-                <span className="font-bold text-indigo-950 text-xs">
-                  Mandatory Certificate Upload via Microsoft Teams
+                <span className="font-bold text-indigo-950 text-xs flex items-center gap-1.5">
+                  <span>Mandatory Certificate Upload via Teams / SharePoint</span>
                 </span>
                 <span className="text-[10px] font-semibold bg-indigo-200 text-indigo-800 px-2 py-0.5 rounded-full">
                   Step 2 of 2
                 </span>
               </div>
               <p className="text-indigo-900 text-xs leading-relaxed">
-                Please upload your certificate of participation to <strong>Microsoft Teams</strong> immediately. The SuperAdmin will verify the certificate and only then will your participation be confirmed.
+                Please upload your certificate of participation to the dedicated <strong>Teams &amp; SharePoint &quot;Upload Certificates here&quot;</strong> folder immediately. The SuperAdmin will inspect your certificate in this folder to complete your verification and confirmation.
               </p>
-              <div className="pt-2">
+              <div className="pt-1.5">
                 <a
-                  href="https://teams.microsoft.com"
+                  href={WBT_TEAMS_UPLOAD_URL}
                   target="_blank"
                   rel="noreferrer noopener"
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#4f52b2] hover:bg-[#44469b] text-white text-xs font-semibold rounded-lg transition shadow-xs"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-[#4f52b2] hover:bg-[#44469b] text-white text-xs font-semibold rounded-lg transition shadow-xs cursor-pointer group"
                 >
-                  <span>Open Microsoft Teams to Upload</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
+                  <span>Open Teams / SharePoint Upload Folder</span>
+                  <ExternalLink className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
                 </a>
               </div>
             </div>
@@ -174,6 +175,13 @@ export function FirestoreSaveModal({ confirmation, onClose }: FirestoreSaveModal
             )}
 
             <div className="flex justify-between items-center py-1.5">
+              <span className="text-slate-500 font-medium">Firestore Database:</span>
+              <span className="text-slate-800 font-mono text-[10px] bg-slate-200/60 px-2 py-0.5 rounded border border-slate-200 font-medium truncate max-w-[240px]" title="ai-studio-readsigncomplian-4208e69d-667a-430c-961f-7e6d635d1298">
+                ai-studio-readsigncomplian...
+              </span>
+            </div>
+
+            <div className="flex justify-between items-center py-1.5">
               <span className="text-slate-500 font-medium">Target Collection(s):</span>
               <div className="flex flex-wrap gap-1 justify-end">
                 {confirmation.collections.map(col => (
@@ -195,10 +203,10 @@ export function FirestoreSaveModal({ confirmation, onClose }: FirestoreSaveModal
             </div>
 
             <div className="flex justify-between items-center py-1.5 last:pb-0">
-              <span className="text-slate-500 font-medium">Browser Storage:</span>
+              <span className="text-slate-500 font-medium">Sync State:</span>
               <span className="text-emerald-700 font-semibold flex items-center gap-1">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                Bypassed (Zero saved in browser)
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                Committed & Verified in Cloud Firestore
               </span>
             </div>
           </div>
@@ -221,3 +229,44 @@ export function FirestoreSaveModal({ confirmation, onClose }: FirestoreSaveModal
     </div>
   );
 }
+
+export function FirestoreLiveToast({
+  lastUpdate,
+  onDismiss,
+}: {
+  lastUpdate: { title: string; collections: string[]; timestamp: string } | null;
+  onDismiss: () => void;
+}) {
+  if (!lastUpdate) return null;
+
+  return (
+    <div className="fixed bottom-4 right-4 z-40 max-w-sm bg-slate-900/95 backdrop-blur-md text-white p-3.5 rounded-xl shadow-2xl border border-slate-700 flex items-start gap-3 animate-in slide-in-from-bottom-3 duration-300">
+      <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 mt-0.5 shrink-0">
+        <CheckCircle2 className="w-4 h-4" />
+      </div>
+      <div className="flex-1 min-w-0 text-xs">
+        <div className="flex items-center gap-1.5">
+          <span className="font-bold text-white tracking-tight">Firebase Updated</span>
+          <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-semibold uppercase">Live</span>
+        </div>
+        <p className="text-slate-300 text-[11px] mt-0.5 truncate font-medium">
+          {lastUpdate.title}
+        </p>
+        <div className="flex items-center gap-1.5 mt-1 text-[10px] text-slate-400">
+          <span>Synced:</span>
+          <span className="font-mono text-emerald-400">{lastUpdate.collections.map(c => `/${c}`).join(' ')}</span>
+          <span>·</span>
+          <span className="tabular-nums font-mono">{lastUpdate.timestamp.slice(11, 19)} UTC</span>
+        </div>
+      </div>
+      <button
+        onClick={onDismiss}
+        className="text-slate-400 hover:text-white p-1 rounded hover:bg-slate-800 transition cursor-pointer"
+        aria-label="Dismiss toast"
+      >
+        <X className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+}
+

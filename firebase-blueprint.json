@@ -16,7 +16,7 @@
         "confirmedAt": { "type": "string", "description": "ISO timestamp of confirmation" },
         "status": {
           "type": "string",
-          "enum": ["confirmed", "pending", "re_sign_required", "pending_late_approval", "rejected", "not_participated"],
+          "enum": ["confirmed", "pending", "re_sign_required", "pending_late_approval", "pending_wbt_verification", "rejected", "not_participated"],
           "description": "Compliance status of the confirmation"
         },
         "signatureText": { "type": "string", "description": "Digital signature text captured upon acknowledgment" },

@@ -1,4 +1,4 @@
-import { TopicComplianceStats } from './compliance-store';
+import { TopicComplianceStats, isUserEligibleForTopic, isConfirmationForTopic, isConfirmationForStaff } from './compliance-store';
 import { User, Topic, TopicConfirmation } from './types';
 
 // Helper to download content as file with UTF-8 BOM for Microsoft Excel compatibility
@@ -30,7 +30,10 @@ export function exportSingleTopicReport(stats: TopicComplianceStats) {
   const { topic, eligibleStaff, confirmedStaff, missingStaff, totalEligible, totalConfirmed, totalMissing, completionRate } = stats;
 
   const confirmedMap = new Map<string, TopicConfirmation>();
-  confirmedStaff.forEach(item => confirmedMap.set(item.user.id, item.confirmation));
+  confirmedStaff.forEach(item => {
+    confirmedMap.set(item.user.id, item.confirmation);
+    if (item.user.uNumber) confirmedMap.set(item.user.uNumber.toUpperCase(), item.confirmation);
+  });
 
   const lines: string[] = [];
 
@@ -73,7 +76,7 @@ export function exportSingleTopicReport(stats: TopicComplianceStats) {
   });
 
   sortedStaff.forEach(u => {
-    const conf = confirmedMap.get(u.id);
+    const conf = confirmedMap.get(u.id) || (u.uNumber ? confirmedMap.get(u.uNumber.toUpperCase()) : undefined);
     lines.push([
       escapeCSV(u.uNumber),
       escapeCSV(u.name),
@@ -223,15 +226,10 @@ export function exportStaffRosterCompliance(
   ].join(','));
 
   users.forEach(u => {
-    const assigned = topics.filter(t => {
-      if (t.targetGroup === 'ALL') return true;
-      if (t.targetGroup === 'ALS') return u.isAls;
-      if (t.targetGroup === 'Lead') return u.isLead;
-      return false;
-    });
+    const assigned = topics.filter(t => isUserEligibleForTopic(u, t));
 
     const confirmed = assigned.filter(t =>
-      confirmations.some(c => c.topicId === t.id && c.userId === u.id && c.status === 'confirmed')
+      confirmations.some(c => isConfirmationForTopic(c, t) && isConfirmationForStaff(c, u) && c.status === 'confirmed')
     );
 
     const pending = assigned.length - confirmed.length;

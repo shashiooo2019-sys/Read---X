@@ -17,12 +17,15 @@ import {
   syncTopicsWithFirebase,
   syncUsersWithFirebase,
   isUserEligibleForTopic,
+  isConfirmationForStaff,
 } from '@/lib/compliance-store';
 import {
   saveVerificationToFirestore,
+  saveAllVerificationsToFirestore,
   deleteVerificationFromFirestore,
   saveTopicToFirestore,
   saveTopicAssignmentsToFirestore,
+  saveAllTopicsAndAssignmentsToFirestore,
   deleteTopicFromFirestore,
   saveUserToFirestore,
   deleteUserFromFirestore,
@@ -30,6 +33,7 @@ import {
   closeTopicForAcknowledgementInFirestore,
   reopenTopicInFirestore,
 } from '@/lib/firebase';
+import { TopicParticipationImportResult, normalizeTopicDirectiveKey, resolveStaffUserId } from '@/lib/topic-participation-importer';
 import { GoogleLogin } from '@/components/auth/google-login';
 import { TopBar } from '@/components/navigation/top-bar';
 import { UserDashboard } from '@/components/user/user-dashboard';
@@ -336,7 +340,8 @@ export default function Home() {
 
     const todayStr = new Date().toISOString().split('T')[0];
     const isPastDeadline = Boolean(topic && topic.dueDate && topic.dueDate < todayStr);
-    const status = topic?.category === 'WBT' ? 'pending_wbt_verification' : 'confirmed';
+    const isWbtTopic = Boolean(topic && (topic.category === 'WBT' || topic.type === 'WBT' || topic.title.toLowerCase().includes('wbt')));
+    const status = isWbtTopic ? 'pending_wbt_verification' : 'confirmed';
 
     const newConf: TopicConfirmation = {
       id: `conf-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -373,7 +378,7 @@ export default function Home() {
     try {
       await saveVerificationToFirestore(newConf);
       // Trigger confirmation pop-up
-      const isWbt = topic?.category === 'WBT';
+      const isWbt = isWbtTopic;
       setFirestoreConfirmation({
         title: isWbt 
           ? 'WBT Acknowledgment Submitted - Please Upload Certificate' 
@@ -566,7 +571,160 @@ export default function Home() {
     }
   };
 
+  // Import Topic Participation Matrix (Excel / CSV / Provided Sheet)
+  const handleImportTopicParticipation = async (result: TopicParticipationImportResult) => {
+    // 1. Merge users: Add newly discovered staff to station roster with canonical IDs
+    const userMap = new Map<string, User>();
+    users.forEach(u => {
+      userMap.set(u.uNumber.toUpperCase(), u);
+      if (u.email) userMap.set(u.email.toLowerCase(), u);
+      userMap.set(u.id, u);
+    });
 
+    const mergedUsers = [...users];
+    result.users.forEach(newU => {
+      const canonicalId = resolveStaffUserId(newU.uNumber, newU.email, newU.name, mergedUsers);
+      const userWithCanonicalId: User = {
+        ...newU,
+        id: canonicalId,
+      };
+
+      const key = newU.uNumber.toUpperCase();
+      if (!userMap.has(key) && !userMap.has(canonicalId)) {
+        userMap.set(key, userWithCanonicalId);
+        userMap.set(canonicalId, userWithCanonicalId);
+        if (newU.email) userMap.set(newU.email.toLowerCase(), userWithCanonicalId);
+        mergedUsers.push(userWithCanonicalId);
+      }
+    });
+
+    // 2. Merge topics: Deduplicate by normalized directive title so there is strictly ONE row per topic
+    const titleToCanonicalTopic = new Map<string, Topic>();
+    const aliasToCanonicalId = new Map<string, string>();
+
+    // Index existing topics
+    topics.forEach(t => {
+      const directiveKey = normalizeTopicDirectiveKey(t.title);
+      if (!titleToCanonicalTopic.has(directiveKey)) {
+        titleToCanonicalTopic.set(directiveKey, { ...t });
+        aliasToCanonicalId.set(t.id, t.id);
+        aliasToCanonicalId.set(directiveKey, t.id);
+      } else {
+        const canonical = titleToCanonicalTopic.get(directiveKey)!;
+        aliasToCanonicalId.set(t.id, canonical.id);
+        aliasToCanonicalId.set(directiveKey, canonical.id);
+        const combined = Array.from(new Set([...(canonical.assignedUserIds || []), ...(t.assignedUserIds || [])]));
+        canonical.assignedUserIds = combined;
+        if (t.targetGroup === 'ALL' || canonical.targetGroup === 'ALL') canonical.targetGroup = 'ALL';
+        else if (t.targetGroup === 'ALS_AND_LEAD' || canonical.targetGroup === 'ALS_AND_LEAD') canonical.targetGroup = 'ALS_AND_LEAD';
+      }
+    });
+
+    // Merge incoming new topics
+    result.topics.forEach(newTopic => {
+      const directiveKey = normalizeTopicDirectiveKey(newTopic.title);
+      if (titleToCanonicalTopic.has(directiveKey)) {
+        const canonical = titleToCanonicalTopic.get(directiveKey)!;
+        aliasToCanonicalId.set(newTopic.id, canonical.id);
+        aliasToCanonicalId.set(directiveKey, canonical.id);
+
+        // Normalize assignedUserIds to canonical IDs
+        const canonicalAssigned = (newTopic.assignedUserIds || []).map(rawId => {
+          const matchedU = mergedUsers.find(u => u.id === rawId || rawId.toLowerCase().includes(u.uNumber.toLowerCase().replace(/^u/i, '')));
+          return matchedU ? matchedU.id : rawId;
+        });
+
+        const combinedAssigned = Array.from(
+          new Set([...(canonical.assignedUserIds || []), ...canonicalAssigned])
+        );
+        canonical.assignedUserIds = combinedAssigned;
+        if (newTopic.targetGroup === 'ALL' || canonical.targetGroup === 'ALL') canonical.targetGroup = 'ALL';
+        else if (newTopic.targetGroup === 'ALS_AND_LEAD' || canonical.targetGroup === 'ALS_AND_LEAD') canonical.targetGroup = 'ALS_AND_LEAD';
+      } else {
+        // Normalize assignedUserIds
+        const canonicalAssigned = (newTopic.assignedUserIds || []).map(rawId => {
+          const matchedU = mergedUsers.find(u => u.id === rawId || rawId.toLowerCase().includes(u.uNumber.toLowerCase().replace(/^u/i, '')));
+          return matchedU ? matchedU.id : rawId;
+        });
+
+        const topicWithCanonicalAssigned = {
+          ...newTopic,
+          assignedUserIds: canonicalAssigned,
+        };
+
+        titleToCanonicalTopic.set(directiveKey, topicWithCanonicalAssigned);
+        aliasToCanonicalId.set(newTopic.id, newTopic.id);
+        aliasToCanonicalId.set(directiveKey, newTopic.id);
+      }
+    });
+
+    const mergedTopics = Array.from(titleToCanonicalTopic.values());
+
+    // 3. Merge confirmations with remapped canonical topic IDs and canonical user IDs
+    const confMap = new Map<string, TopicConfirmation>();
+
+    confirmations.forEach(c => {
+      const topicDirectiveKey = c.documentTitle ? normalizeTopicDirectiveKey(c.documentTitle) : '';
+      const canonicalTopicId = aliasToCanonicalId.get(c.topicId) || (topicDirectiveKey && aliasToCanonicalId.get(topicDirectiveKey)) || c.topicId;
+      
+      const matchedUser = mergedUsers.find(u => isConfirmationForStaff(c, u));
+      const canonicalUserId = matchedUser ? matchedUser.id : resolveStaffUserId(c.uNumber || '', c.userEmail, c.userName, mergedUsers);
+
+      confMap.set(`${canonicalTopicId}_${canonicalUserId}`, {
+        ...c,
+        topicId: canonicalTopicId,
+        userId: canonicalUserId,
+      });
+    });
+
+    result.confirmations.forEach(newConf => {
+      const topicDirectiveKey = newConf.documentTitle ? normalizeTopicDirectiveKey(newConf.documentTitle) : '';
+      const canonicalTopicId = aliasToCanonicalId.get(newConf.topicId) || (topicDirectiveKey && aliasToCanonicalId.get(topicDirectiveKey)) || newConf.topicId;
+
+      const matchedUser = mergedUsers.find(u => isConfirmationForStaff(newConf, u));
+      const canonicalUserId = matchedUser ? matchedUser.id : resolveStaffUserId(newConf.uNumber || '', newConf.userEmail, newConf.userName, mergedUsers);
+
+      const key = `${canonicalTopicId}_${canonicalUserId}`;
+      const existing = confMap.get(key);
+
+      if (!existing || existing.status !== 'confirmed' || newConf.status === 'confirmed') {
+        confMap.set(key, {
+          ...newConf,
+          topicId: canonicalTopicId,
+          userId: canonicalUserId,
+        });
+      }
+    });
+
+    const mergedConfirmations = Array.from(confMap.values());
+
+    // Update in-memory state
+    setUsers(mergedUsers);
+    setTopics(mergedTopics);
+    setConfirmations(mergedConfirmations);
+    saveUsers(mergedUsers);
+    saveTopics(mergedTopics, mergedUsers);
+    saveConfirmations(mergedConfirmations);
+
+    // Save directly to Cloud Firestore in batched writes
+    try {
+      await saveAllUsersToFirestore(mergedUsers);
+      await saveAllTopicsAndAssignmentsToFirestore(mergedTopics, mergedUsers);
+      await saveAllVerificationsToFirestore(mergedConfirmations);
+
+      setFirestoreConfirmation({
+        title: 'Topic Participation Imported & Saved to Firestore',
+        recordType: 'topic_created',
+        topicTitle: `${result.stats.totalTopics} Topics (${result.stats.totalConfirmed} Confirmed, ${result.stats.totalPending} Pending)`,
+        assignedCount: result.stats.totalStaff,
+        collections: ['topics', 'topic_assignments', 'compliance_verifications', 'users'],
+        timestamp: new Date().toISOString(),
+        statusText: `Successfully imported ${result.stats.totalRows} participation records across ${result.stats.totalTopics} topics. ${result.stats.totalConfirmed} verified confirmations and all assignments were permanently committed to Cloud Firestore database ai-studio-readsigncomplian-4208e69d-667a-430c-961f-7e6d635d1298. Zero browser storage.`,
+      });
+    } catch (err) {
+      console.warn('Firebase batch import save notice:', err);
+    }
+  };
 
   if (!mounted || sessionChecking) {
     return (
@@ -620,6 +778,8 @@ export default function Home() {
             onReopenTopicForAcknowledgement={handleReopenTopic}
             onUpdateConfirmation={handleUpdateConfirmation}
             onNavigateToRoster={() => setActiveTab('staff-roster')}
+            onImportTopicParticipation={handleImportTopicParticipation}
+            onShowFirestoreConfirmation={setFirestoreConfirmation}
           />
         )}
 

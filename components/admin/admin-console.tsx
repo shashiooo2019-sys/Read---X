@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { User, Topic, TopicConfirmation, TopicType, TargetGroup, DateFilterType, DateFilterOptions, TopicCloseOption } from '@/lib/types';
+import { User, Topic, TopicConfirmation, TopicType, TargetGroup, DateFilterType, DateFilterOptions, TopicCloseOption, WBT_TEAMS_UPLOAD_URL } from '@/lib/types';
 import {
   calculateTopicStats,
   TopicComplianceStats,
@@ -9,6 +9,7 @@ import {
   getISOWeekNumber,
   getWeekDateRange,
   isTopicFuturePlanned,
+  deduplicateTopicsByTitle,
 } from '@/lib/compliance-store';
 import { exportSingleTopicReport, exportMultipleTopicsReport } from '@/lib/export-utils';
 import { CreateTopicModal } from './create-topic-modal';
@@ -43,6 +44,9 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { saveAllTopicsAndAssignmentsToFirestore } from '@/lib/firebase';
+import { ImportTopicParticipationModal } from './import-topic-participation-modal';
+import { TopicParticipationImportResult } from '@/lib/topic-participation-importer';
+import { FirestoreConfirmationDetails } from '@/components/common/firestore-save-modal';
 
 interface AdminConsoleProps {
   users: User[];
@@ -55,6 +59,8 @@ interface AdminConsoleProps {
   onReopenTopicForAcknowledgement?: (topicId: string) => void;
   onUpdateConfirmation?: (confirmationId: string, newStatus: 'confirmed' | 'rejected', reviewNote?: string) => void;
   onNavigateToRoster?: () => void;
+  onImportTopicParticipation?: (result: TopicParticipationImportResult) => Promise<void>;
+  onShowFirestoreConfirmation?: (details: FirestoreConfirmationDetails) => void;
 }
 
 const ALL_TOPIC_TYPES: TopicType[] = [
@@ -98,9 +104,12 @@ export function AdminConsole({
   onReopenTopicForAcknowledgement,
   onUpdateConfirmation,
   onNavigateToRoster,
+  onImportTopicParticipation,
+  onShowFirestoreConfirmation,
 }: AdminConsoleProps) {
   // Modal states
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showImportParticipationModal, setShowImportParticipationModal] = useState(false);
   const [selectedTopicForBreakdown, setSelectedTopicForBreakdown] = useState<TopicComplianceStats | null>(null);
   const [topicToClose, setTopicToClose] = useState<{ topic: Topic; stat: TopicComplianceStats } | null>(null);
   const [showApprovedModal, setShowApprovedModal] = useState(false);
@@ -122,6 +131,46 @@ export function AdminConsole({
   const [selectedTopicIds, setSelectedTopicIds] = useState<Set<string>>(new Set());
   const tableScrollRef = React.useRef<HTMLDivElement>(null);
 
+  // Topic Deletion modal states (in-app dialogs replacing blocked window.confirm)
+  const [topicToDelete, setTopicToDelete] = useState<Topic | null>(null);
+  const [isDeletingTopic, setIsDeletingTopic] = useState(false);
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+
+  const handleConfirmDeleteTopic = async () => {
+    if (!topicToDelete) return;
+    setIsDeletingTopic(true);
+    try {
+      await onDeleteTopic(topicToDelete.id);
+      setSelectedTopicIds(prev => {
+        const next = new Set(prev);
+        next.delete(topicToDelete.id);
+        return next;
+      });
+      if (selectedTopicForBreakdown?.topic.id === topicToDelete.id) {
+        setSelectedTopicForBreakdown(null);
+      }
+    } finally {
+      setIsDeletingTopic(false);
+      setTopicToDelete(null);
+    }
+  };
+
+  const handleConfirmBulkDelete = async () => {
+    if (selectedTopicIds.size === 0) return;
+    setIsBulkDeleting(true);
+    try {
+      const idsToDelete = Array.from(selectedTopicIds);
+      for (const id of idsToDelete) {
+        await onDeleteTopic(id);
+      }
+      setSelectedTopicIds(new Set());
+    } finally {
+      setIsBulkDeleting(false);
+      setShowBulkDeleteModal(false);
+    }
+  };
+
   // Firestore sync feedback state
   const [isSyncingFirebase, setIsSyncingFirebase] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
@@ -134,6 +183,17 @@ export function AdminConsole({
       if (result.success) {
         setSyncMessage(`✓ Synced ${result.topicsCount} topic(s) and ${result.assignmentsCount} staff assignment(s) to Firestore`);
         setTimeout(() => setSyncMessage(null), 4500);
+
+        if (onShowFirestoreConfirmation) {
+          onShowFirestoreConfirmation({
+            title: 'Station Topics & Assignments Committed to Firestore',
+            recordType: 'topic_created',
+            assignedCount: result.assignmentsCount,
+            collections: ['topics', 'topic_assignments'],
+            timestamp: new Date().toISOString(),
+            statusText: `All ${result.topicsCount} topic(s) and ${result.assignmentsCount} staff assignment records were synchronized and verified in Cloud Firestore database ai-studio-readsigncomplian-4208e69d-667a-430c-961f-7e6d635d1298. Zero browser storage.`,
+          });
+        }
       } else {
         setSyncMessage('⚠️ Could not complete Firestore sync');
         setTimeout(() => setSyncMessage(null), 4000);
@@ -190,10 +250,15 @@ export function AdminConsole({
     return weeks;
   }, [selectedYear, referenceDate]);
 
-  // Compute stats for all topics
+  // Deduplicate topics by title so there is strictly one row per topic
+  const uniqueTopics = useMemo(() => {
+    return deduplicateTopicsByTitle(topics);
+  }, [topics]);
+
+  // Compute stats for all unique topics (one row per topic)
   const allTopicStats = useMemo(() => {
-    return topics.map(t => calculateTopicStats(t, users, confirmations));
-  }, [topics, users, confirmations]);
+    return uniqueTopics.map(t => calculateTopicStats(t, users, confirmations));
+  }, [uniqueTopics, users, confirmations]);
 
   // Partition stats into active and future planned
   const activeTopicStats = useMemo(() => {
@@ -356,12 +421,12 @@ export function AdminConsole({
             </div>
 
             <a
-              href="https://teams.microsoft.com"
+              href={WBT_TEAMS_UPLOAD_URL}
               target="_blank"
               rel="noreferrer noopener"
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#4f52b2] hover:bg-[#44469b] text-white text-xs font-semibold rounded-xl transition shadow-xs shrink-0 self-start sm:self-center"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#4f52b2] hover:bg-[#44469b] text-white text-xs font-semibold rounded-xl transition shadow-xs shrink-0 self-start sm:self-center cursor-pointer"
             >
-              <span>Open Microsoft Teams</span>
+              <span>Open Teams / SharePoint Folder</span>
               <ExternalLink className="w-3.5 h-3.5" />
             </a>
           </div>
@@ -425,12 +490,12 @@ export function AdminConsole({
 
                       <div className="flex flex-wrap items-center gap-2 shrink-0">
                         <a
-                          href="https://teams.microsoft.com"
+                          href={WBT_TEAMS_UPLOAD_URL}
                           target="_blank"
                           rel="noreferrer noopener"
-                          className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition border border-slate-200 flex items-center gap-1"
+                          className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition border border-slate-200 flex items-center gap-1 cursor-pointer"
                         >
-                          <span>Check in Teams</span>
+                          <span>Check in Teams / SharePoint</span>
                           <ExternalLink className="w-3 h-3 text-slate-500" />
                         </a>
 
@@ -578,6 +643,15 @@ export function AdminConsole({
               >
                 <Cloud className={`w-3.5 h-3.5 ${isSyncingFirebase ? 'text-blue-500 animate-pulse' : 'text-blue-600'}`} />
                 <span>{isSyncingFirebase ? 'Syncing...' : 'Sync Firestore'}</span>
+              </button>
+
+              <button
+                onClick={() => setShowImportParticipationModal(true)}
+                className="px-3.5 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition border border-emerald-300 flex items-center gap-1.5 shadow-xs cursor-pointer"
+                title="Import Topic Participation from Excel or CSV matrix"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Import Topic Participation</span>
               </button>
 
               <button
@@ -1278,14 +1352,42 @@ export function AdminConsole({
               <span>Select All Visible ({filteredTopicStats.length})</span>
             </button>
             {selectedTopicIds.size > 0 && (
-              <span className="text-[11px] text-slate-500">
-                ({selectedTopicIds.size} topics selected for bulk export)
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-slate-500 font-medium">
+                  ({selectedTopicIds.size} topics selected)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowBulkDeleteModal(true)}
+                  className="px-2.5 py-1 text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-300 rounded-md transition shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  title="Permanently delete all selected compliance topics"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                  <span>Delete Selected ({selectedTopicIds.size})</span>
+                </button>
+              </div>
             )}
           </div>
 
-          <div className="text-slate-500 text-[11px]">
-            Showing <strong className="text-slate-900">{filteredTopicStats.length}</strong> topics
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowImportParticipationModal(true)}
+              className="px-2.5 py-1 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-md transition border border-emerald-300 flex items-center gap-1.5 shadow-xs cursor-pointer"
+              title="Import Topic Participation matrix from Excel / CSV"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Import Participation</span>
+            </button>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="px-2.5 py-1 text-xs font-semibold text-white bg-[#0078D4] hover:bg-[#106EBE] rounded-md transition shadow-xs flex items-center gap-1.5 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>+ Create Topic</span>
+            </button>
+            <div className="text-slate-500 text-[11px] ml-2">
+              Showing <strong className="text-slate-900">{filteredTopicStats.length}</strong> topics
+            </div>
           </div>
         </div>
 
@@ -1357,11 +1459,12 @@ export function AdminConsole({
                   return (
                     <tr
                       key={topic.id}
-                      className={`hover:bg-slate-50/80 transition ${
+                      onClick={() => setSelectedTopicForBreakdown(stat)}
+                      className={`hover:bg-slate-50/80 transition cursor-pointer ${
                         isSelected ? 'bg-blue-50/40' : ''
                       }`}
                     >
-                      <td className="py-3 px-3 text-center">
+                      <td className="py-3 px-3 text-center" onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
                           checked={isSelected}
@@ -1553,7 +1656,11 @@ export function AdminConsole({
                         ) : (topic.type === 'Training' || topic.type === 'Briefing' || topic.type === 'Role Play') &&
                           (totalMissing === 0 || (topic.dueDate && topic.dueDate < new Date().toISOString().split('T')[0])) ? (
                           <button
-                            onClick={() => setTopicToClose({ topic, stat })}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setTopicToClose({ topic, stat });
+                            }}
                             className="px-2.5 py-1 text-[11px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded transition inline-flex items-center gap-1 shadow-xs cursor-pointer"
                             title="Close topic for acknowledgement: verifies all assigned participants"
                           >
@@ -1564,7 +1671,11 @@ export function AdminConsole({
 
                         {/* Breakdown drill-down */}
                         <button
-                          onClick={() => setSelectedTopicForBreakdown(stat)}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedTopicForBreakdown(stat);
+                          }}
                           className="px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded transition inline-flex items-center gap-1 cursor-pointer"
                           title="View list of confirmed and missing staff for this topic"
                         >
@@ -1574,7 +1685,11 @@ export function AdminConsole({
 
                         {/* Export Single Topic CSV */}
                         <button
-                          onClick={() => exportSingleTopicReport(stat)}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            exportSingleTopicReport(stat);
+                          }}
                           className="px-2 py-1 text-[11px] text-[#0078D4] hover:bg-blue-50 border border-slate-200 rounded transition inline-flex items-center gap-1 cursor-pointer"
                           title="Export single topic compliance report (CSV)"
                         >
@@ -1584,13 +1699,14 @@ export function AdminConsole({
 
                         {/* Delete topic */}
                         <button
-                          onClick={() => {
-                            if (window.confirm(`Are you sure you want to delete "${topic.title}"?`)) {
-                              onDeleteTopic(topic.id);
-                            }
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setTopicToDelete(topic);
                           }}
-                          className="p-1 text-slate-400 hover:text-red-600 rounded transition cursor-pointer"
-                          title="Delete compliance topic"
+                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition cursor-pointer"
+                          title={`Delete compliance topic & directive "${topic.title}"`}
+                          aria-label={`Delete compliance topic ${topic.title}`}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -1621,6 +1737,7 @@ export function AdminConsole({
           onUpdateConfirmation={onUpdateConfirmation}
           onCloseTopicForAcknowledgement={onCloseTopicForAcknowledgement}
           onReopenTopicForAcknowledgement={onReopenTopicForAcknowledgement}
+          onDeleteTopic={onDeleteTopic}
           onClose={() => setSelectedTopicForBreakdown(null)}
         />
       )}
@@ -1712,6 +1829,171 @@ export function AdminConsole({
         <AuditLogModal
           onClose={() => setShowAuditModal(false)}
         />
+      )}
+
+      {/* Import Topic Participation Modal */}
+      {showImportParticipationModal && (
+        <ImportTopicParticipationModal
+          users={users}
+          onCommitImport={async (result) => {
+            if (onImportTopicParticipation) {
+              await onImportTopicParticipation(result);
+            }
+          }}
+          onClose={() => setShowImportParticipationModal(false)}
+        />
+      )}
+
+      {/* Single Topic / Directive Deletion In-App Confirmation Modal */}
+      {topicToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden transform animate-in zoom-in-95 duration-150">
+            <div className="p-5 border-b border-slate-100 flex items-start gap-3 bg-red-50/50">
+              <div className="p-2.5 bg-red-100 text-red-600 rounded-full shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-bold text-slate-900">Delete Compliance Topic</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Permanent removal from Cloud Firestore</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTopicToDelete(null)}
+                disabled={isDeletingTopic}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-md cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3.5 text-xs text-slate-600">
+              <p>
+                Are you sure you want to permanently delete this compliance topic and directive?
+              </p>
+              <div className="p-3 bg-red-50/80 border border-red-200 rounded-lg space-y-1">
+                <div className="font-semibold text-red-900 text-sm">
+                  {topicToDelete.title}
+                </div>
+                <div className="text-[11px] text-red-700 flex flex-wrap gap-x-3 gap-y-0.5 pt-0.5">
+                  <span>Type: <strong className="font-medium">{topicToDelete.type || 'Directive'}</strong></span>
+                  {topicToDelete.dueDate && <span>Due: <strong className="font-medium">{topicToDelete.dueDate}</strong></span>}
+                  {topicToDelete.category && <span>Category: <strong className="font-medium">{topicToDelete.category}</strong></span>}
+                </div>
+              </div>
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 text-[11px] leading-relaxed">
+                <strong className="block mb-1">Permanent Firestore Deletion Notice:</strong>
+                <ul className="list-disc list-inside space-y-0.5 text-amber-800">
+                  <li>Topic record will be erased from Cloud Firestore.</li>
+                  <li>All assigned staff member records will be cleared.</li>
+                  <li>All historical employee signatures and verifications will be removed.</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setTopicToDelete(null)}
+                disabled={isDeletingTopic}
+                className="px-3.5 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteTopic}
+                disabled={isDeletingTopic}
+                className="px-4 py-1.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 active:bg-red-800 rounded-lg transition shadow-xs inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isDeletingTopic ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block" />
+                    <span>Deleting from Firestore...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Topic Permanently</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Topics Deletion In-App Confirmation Modal */}
+      {showBulkDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden transform animate-in zoom-in-95 duration-150">
+            <div className="p-5 border-b border-slate-100 flex items-start gap-3 bg-red-50/50">
+              <div className="p-2.5 bg-red-100 text-red-600 rounded-full shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-bold text-slate-900">Delete Selected Topics</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Permanent batch deletion from Cloud Firestore</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBulkDeleteModal(false)}
+                disabled={isBulkDeleting}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-md cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3.5 text-xs text-slate-600">
+              <p>
+                Are you sure you want to permanently delete these <strong>{selectedTopicIds.size}</strong> selected compliance topics and directives?
+              </p>
+              <div className="max-h-36 overflow-y-auto p-2.5 bg-slate-50 border border-slate-200 rounded-lg space-y-1.5">
+                {Array.from(selectedTopicIds).map(id => {
+                  const t = topics.find(topic => topic.id === id);
+                  return (
+                    <div key={id} className="text-xs text-slate-700 font-medium truncate flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
+                      <span className="truncate">{t?.title || id}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-800 text-[11px] leading-relaxed">
+                <strong>Warning:</strong> All {selectedTopicIds.size} topic definitions, staff assignments, and acknowledgment verifications will be permanently erased from Cloud Firestore.
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowBulkDeleteModal(false)}
+                disabled={isBulkDeleting}
+                className="px-3.5 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmBulkDelete}
+                disabled={isBulkDeleting}
+                className="px-4 py-1.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 active:bg-red-800 rounded-lg transition shadow-xs inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isBulkDeleting ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block" />
+                    <span>Deleting {selectedTopicIds.size} topics...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete {selectedTopicIds.size} Topics Permanently</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

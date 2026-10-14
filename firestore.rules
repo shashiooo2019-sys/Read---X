@@ -21,7 +21,7 @@ service cloud.firestore {
           && data.topicId is string && data.topicId.size() <= 128
           && data.userId is string && data.userId.size() <= 128
           && data.confirmedAt is string && data.confirmedAt.size() <= 64
-          && data.status in ['confirmed', 'pending', 're_sign_required', 'pending_late_approval', 'rejected', 'not_participated'];
+          && data.status in ['confirmed', 'pending', 're_sign_required', 'pending_late_approval', 'pending_wbt_verification', 'rejected', 'not_participated'];
       }
       allow get: if isValidId(verificationId);
       allow list: if isSignedIn();

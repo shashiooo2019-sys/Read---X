@@ -244,8 +244,11 @@ export function ApprovedUsersManager({ onClose, onRefreshRoster }: ApprovedUsers
     }
   };
 
+  const [emailToRevoke, setEmailToRevoke] = useState<string | null>(null);
+  const [isRevoking, setIsRevoking] = useState(false);
+
   const handleRevoke = async (loginEmail: string) => {
-    if (!window.confirm(`Revoke approved private email status for ${loginEmail}?`)) return;
+    setIsRevoking(true);
     try {
       const res = await fetch('/api/auth/admin/users', {
         method: 'POST',
@@ -261,6 +264,9 @@ export function ApprovedUsersManager({ onClose, onRefreshRoster }: ApprovedUsers
       }
     } catch {
       // ignore
+    } finally {
+      setIsRevoking(false);
+      setEmailToRevoke(null);
     }
   };
 
@@ -408,12 +414,35 @@ export function ApprovedUsersManager({ onClose, onRefreshRoster }: ApprovedUsers
                     </td>
                     <td className="py-2 px-3 text-right">
                       {item.status === 'approved' && (
-                        <button
-                          onClick={() => handleRevoke(item.loginEmail)}
-                          className="text-red-600 hover:underline font-medium text-[11px]"
-                        >
-                          Revoke
-                        </button>
+                        emailToRevoke === item.loginEmail ? (
+                          <div className="inline-flex items-center gap-1.5 justify-end">
+                            <span className="text-[10px] text-slate-500 font-medium">Revoke?</span>
+                            <button
+                              type="button"
+                              onClick={() => handleRevoke(item.loginEmail)}
+                              disabled={isRevoking}
+                              className="px-2 py-0.5 bg-red-600 text-white hover:bg-red-700 rounded text-[10px] font-semibold transition cursor-pointer"
+                            >
+                              {isRevoking ? '...' : 'Yes'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEmailToRevoke(null)}
+                              disabled={isRevoking}
+                              className="px-1.5 py-0.5 bg-slate-200 text-slate-700 hover:bg-slate-300 rounded text-[10px] transition cursor-pointer"
+                            >
+                              No
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setEmailToRevoke(item.loginEmail)}
+                            className="text-red-600 hover:text-red-700 hover:underline font-medium text-[11px] cursor-pointer"
+                          >
+                            Revoke
+                          </button>
+                        )
                       )}
                     </td>
                   </tr>

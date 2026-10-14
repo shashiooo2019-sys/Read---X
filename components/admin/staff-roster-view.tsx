@@ -20,6 +20,8 @@ import {
   ArrowRight,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
+  X,
   Plus,
   Upload,
   Edit2,
@@ -94,6 +96,10 @@ export function StaffRosterView({
   const [showAuditModal, setShowAuditModal] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [actionLoadingUserId, setActionLoadingUserId] = useState<string | null>(null);
+  const [userToDelete, setUserToDelete] = useState<User | null>(null);
+  const [userToToggleStatus, setUserToToggleStatus] = useState<User | null>(null);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
+  const [isTogglingStatus, setIsTogglingStatus] = useState(false);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -129,13 +135,14 @@ export function StaffRosterView({
 
   // Toggle user account disabled / active (Requirement 9)
   const handleToggleAccountStatus = async (user: User) => {
+    setUserToToggleStatus(user);
+  };
+
+  const handleConfirmToggleAccountStatus = async () => {
+    if (!userToToggleStatus) return;
+    const user = userToToggleStatus;
     const newStatus = user.accountStatus === 'disabled' ? 'active' : 'disabled';
-    const actionLabel = newStatus === 'disabled' ? 'Deactivate' : 'Reactivate';
-
-    if (!window.confirm(`${actionLabel} account for ${user.name}? When deactivated, all active sessions are instantly revoked.`)) {
-      return;
-    }
-
+    setIsTogglingStatus(true);
     try {
       const res = await fetch('/api/auth/admin/users', {
         method: 'POST',
@@ -155,6 +162,9 @@ export function StaffRosterView({
       }
     } catch {
       showToast('Network error updating status.');
+    } finally {
+      setIsTogglingStatus(false);
+      setUserToToggleStatus(null);
     }
   };
 
@@ -219,17 +229,21 @@ export function StaffRosterView({
 
   const handleDeleteStaffWithConfirm = (user: User) => {
     if (user.id === currentUser.id) {
-      alert('You cannot delete your own active administrator account.');
+      showToast('You cannot delete your own active administrator account.');
       return;
     }
+    setUserToDelete(user);
+  };
 
-    if (
-      window.confirm(
-        `Are you sure you want to delete ${user.name} (${user.uNumber} - ${user.email}) from the organizational roster?`
-      )
-    ) {
-      onDeleteStaff(user.id);
-      showToast(`Staff member "${user.name}" (${user.uNumber}) has been deleted.`);
+  const handleConfirmDeleteStaff = async () => {
+    if (!userToDelete) return;
+    setIsDeletingUser(true);
+    try {
+      onDeleteStaff(userToDelete.id);
+      showToast(`Staff member "${userToDelete.name}" (${userToDelete.uNumber}) has been deleted.`);
+    } finally {
+      setIsDeletingUser(false);
+      setUserToDelete(null);
     }
   };
 
@@ -967,6 +981,144 @@ export function StaffRosterView({
         <AuditLogModal
           onClose={() => setShowAuditModal(false)}
         />
+      )}
+
+      {/* Delete Staff Member In-App Confirmation Modal */}
+      {userToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden">
+            <div className="p-5 border-b border-slate-100 flex items-start gap-3 bg-red-50/50">
+              <div className="p-2.5 bg-red-100 text-red-600 rounded-full shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-bold text-slate-900">Delete Staff Member</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Permanent removal from station roster</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setUserToDelete(null)}
+                disabled={isDeletingUser}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-md cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3.5 text-xs text-slate-600">
+              <p>
+                Are you sure you want to permanently delete this staff member from the organization?
+              </p>
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg space-y-1">
+                <div className="font-semibold text-red-900 text-sm">
+                  {userToDelete.name}
+                </div>
+                <div className="text-[11px] text-red-700 flex flex-wrap gap-x-3 gap-y-0.5">
+                  <span>ID: <strong className="font-medium">{userToDelete.uNumber}</strong></span>
+                  <span>Email: <strong className="font-medium">{userToDelete.email}</strong></span>
+                </div>
+              </div>
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 text-[11px] leading-relaxed">
+                <strong>Notice:</strong> This staff member will be removed from Cloud Firestore station roster and will no longer be assigned to compliance topics.
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setUserToDelete(null)}
+                disabled={isDeletingUser}
+                className="px-3.5 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteStaff}
+                disabled={isDeletingUser}
+                className="px-4 py-1.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg transition shadow-xs inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isDeletingUser ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Staff Member</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toggle Account Status In-App Confirmation Modal */}
+      {userToToggleStatus && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden">
+            <div className="p-5 border-b border-slate-100 flex items-start gap-3 bg-amber-50/50">
+              <div className="p-2.5 bg-amber-100 text-amber-700 rounded-full shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-bold text-slate-900">
+                  {userToToggleStatus.accountStatus === 'disabled' ? 'Reactivate Staff Account' : 'Deactivate Staff Account'}
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">Access control and session management</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setUserToToggleStatus(null)}
+                disabled={isTogglingStatus}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-md cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3.5 text-xs text-slate-600">
+              <p>
+                Are you sure you want to {userToToggleStatus.accountStatus === 'disabled' ? 'reactivate' : 'deactivate'} access for <strong>{userToToggleStatus.name}</strong> ({userToToggleStatus.email})?
+              </p>
+              {userToToggleStatus.accountStatus !== 'disabled' && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-800 text-[11px] leading-relaxed">
+                  <strong>Security Note:</strong> Deactivating will instantly revoke all active login sessions and magic links for this account.
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setUserToToggleStatus(null)}
+                disabled={isTogglingStatus}
+                className="px-3.5 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmToggleAccountStatus}
+                disabled={isTogglingStatus}
+                className="px-4 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition shadow-xs inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isTogglingStatus ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block" />
+                    <span>Updating...</span>
+                  </>
+                ) : (
+                  <span>
+                    {userToToggleStatus.accountStatus === 'disabled' ? 'Reactivate Account' : 'Deactivate Account'}
+                  </span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Topic, User, TopicConfirmation } from '@/lib/types';
+import { Topic, User, TopicConfirmation, WBT_TEAMS_UPLOAD_URL } from '@/lib/types';
 import {
   FileText,
   Calendar,
@@ -44,6 +44,12 @@ export function AcknowledgmentModal({
   const isParticipationType =
     topic.type === 'Training' || topic.type === 'Briefing' || topic.type === 'Role Play';
 
+  // Check if topic relates to WBT (Web-Based Training)
+  const isWbt =
+    topic.category === 'WBT' ||
+    topic.type === 'WBT' ||
+    topic.title.toLowerCase().includes('wbt');
+
   // Check if re-sign is required due to document version update
   const isVersionMismatch =
     !!existingConfirmation &&
@@ -66,24 +72,24 @@ export function AcknowledgmentModal({
 
   const actionButtonText = isVersionMismatch
     ? 'Acknowledge Updated Version (Re-sign)'
-    : topic.category === 'WBT' && isPastDeadline
+    : isWbt && isPastDeadline
     ? 'Submit Late WBT Acknowledgment'
     : isPastDeadline && isReadAndSign
     ? 'Submit Overdue Acknowledgment (Remark Attached)'
     : isPastDeadline
     ? 'Submit Late Response'
-    : topic.category === 'WBT'
+    : isWbt
     ? 'Acknowledge WBT Directive'
     : isParticipationType
     ? 'Confirm Participation & Understanding'
     : 'Read and Sign Directive';
 
-  const canSubmit = hasAgreedTerms && !isSubmitting && (!isPastDeadline || (!isReadAndSign && topic.category !== 'WBT') || lateReason.trim().length > 0 || topic.category === 'WBT');
+  const canSubmit = hasAgreedTerms && !isSubmitting && (!isPastDeadline || (!isReadAndSign && !isWbt) || lateReason.trim().length > 0 || isWbt);
 
   const handleSignSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!hasAgreedTerms) return;
-    if (isPastDeadline && isReadAndSign && topic.category !== 'WBT' && !lateReason.trim()) return;
+    if (isPastDeadline && isReadAndSign && !isWbt && !lateReason.trim()) return;
 
     setIsSubmitting(true);
     setTimeout(() => {
@@ -185,12 +191,25 @@ export function AcknowledgmentModal({
                 </span>
               </div>
               <p className="text-xs text-emerald-700">
-                {topic.category === 'WBT' && existingConfirmation?.status !== 'confirmed'
-                    ? 'Your acknowledgement is recorded. Please ensure you have uploaded your certificate to Teams for admin verification to complete the process.'
+                {isWbt && existingConfirmation?.status !== 'confirmed'
+                    ? 'Your acknowledgement is recorded. Please ensure you have uploaded your certificate to Teams & SharePoint for admin verification to complete the process.'
                     : topic.isClosed
                     ? 'This compliance session was closed for acknowledgement by station administrator. Participation is verified and permanently confirmed in Cloud Firestore.'
                     : 'You have confirmed acknowledgment and understanding of this topic under your Microsoft 365 authenticated identity.'}
               </p>
+              {isWbt && (
+                <div className="pt-2">
+                  <a
+                    href={WBT_TEAMS_UPLOAD_URL}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#4f52b2] hover:bg-[#44469b] text-white text-xs font-semibold rounded-lg shadow-xs transition"
+                  >
+                    <span>Upload / Verify Certificate in Teams</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+              )}
               {existingConfirmation?.lateReason && (
                 <div className="p-2.5 bg-amber-50/90 border border-amber-200 rounded text-xs text-amber-900 mt-2">
                   <span className="font-semibold block text-[11px] text-amber-800">Recorded Delay Explanation:</span>
@@ -215,11 +234,24 @@ export function AcknowledgmentModal({
           {/* Form for Acknowledgment & Signing (if not already confirmed) */}
           {!isAlreadyConfirmed && !successReceipt && (
             <form onSubmit={handleSignSubmit} className="space-y-4 pt-2 border-t border-slate-200">
-              {topic.category === 'WBT' && (
-                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900">
-                      <strong className="block font-semibold">WBT Acknowledgment Notice:</strong>
-                      <span>After submitting this acknowledgement, you <strong>must</strong> upload your certificate of participation to Teams for admin review and approval.</span>
+              {isWbt && (
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900 space-y-2">
+                  <strong className="block font-semibold">WBT Acknowledgment &amp; Certificate Notice:</strong>
+                  <p className="leading-relaxed">
+                    After submitting this acknowledgement, you <strong>must</strong> upload your certificate of participation to the dedicated Teams / SharePoint folder for SuperAdmin verification and final confirmation.
+                  </p>
+                  <div>
+                    <a
+                      href={WBT_TEAMS_UPLOAD_URL}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#4f52b2] hover:bg-[#44469b] text-white text-xs font-semibold rounded-lg shadow-xs transition"
+                    >
+                      <span>Open Teams / SharePoint Upload Folder</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
                   </div>
+                </div>
               )}
               {isPastDeadline && (
                 <div className={`p-4 rounded-lg space-y-2 border ${isReadAndSign ? 'bg-rose-50 border-rose-300' : 'bg-amber-50 border-amber-300'}`}>

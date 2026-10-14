@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
-import { TopicComplianceStats } from '@/lib/compliance-store';
+import React, { useState, useMemo } from 'react';
+import { TopicComplianceStats, isConfirmationForStaff } from '@/lib/compliance-store';
 import { exportSingleTopicReport } from '@/lib/export-utils';
-import { TopicCloseOption } from '@/lib/types';
+import { TopicCloseOption, WBT_TEAMS_UPLOAD_URL } from '@/lib/types';
 import {
   X,
   Download,
@@ -11,13 +11,15 @@ import {
   CheckCircle2,
   Clock,
   AlertTriangle,
+  ExternalLink,
   Mail,
   Send,
   UserCheck,
   UserX,
   Maximize2,
   Minimize2,
-  RotateCcw
+  RotateCcw,
+  Trash2
 } from 'lucide-react';
 
 interface TopicBreakdownModalProps {
@@ -25,6 +27,7 @@ interface TopicBreakdownModalProps {
   onUpdateConfirmation?: (confirmationId: string, newStatus: 'confirmed' | 'rejected', reviewNote?: string) => void;
   onCloseTopicForAcknowledgement?: (topicId: string, option: TopicCloseOption) => void;
   onReopenTopicForAcknowledgement?: (topicId: string) => void;
+  onDeleteTopic?: (topicId: string) => void | Promise<void>;
   onClose: () => void;
 }
 
@@ -33,15 +36,18 @@ export function TopicBreakdownModal({
   onUpdateConfirmation,
   onCloseTopicForAcknowledgement,
   onReopenTopicForAcknowledgement,
+  onDeleteTopic,
   onClose,
 }: TopicBreakdownModalProps) {
-  const [activeTab, setActiveTab] = useState<'missing' | 'confirmed' | 'pending_late' | 'not_participated'>('missing');
+  const [activeTab, setActiveTab] = useState<'all' | 'confirmed' | 'missing' | 'pending_late' | 'not_participated'>('all');
   const [searchStaff, setSearchStaff] = useState('');
   const [reminderSentStaff, setReminderSentStaff] = useState<Record<string, boolean>>({});
   const [isFullscreen, setIsFullscreen] = useState(true);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
   const [closeOption, setCloseOption] = useState<TopicCloseOption>('mark_participated');
   const [showReopenDialog, setShowReopenDialog] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const todayStr = new Date().toISOString().split('T')[0];
   const isPastDeadline = Boolean(stats.topic.dueDate && stats.topic.dueDate < todayStr);
@@ -73,6 +79,35 @@ export function TopicBreakdownModal({
     });
     setReminderSentStaff(updated);
   };
+
+  // Unified list of all participants for this topic
+  const allParticipants = useMemo(() => {
+    return stats.eligibleStaff.map(u => {
+      const confItem = confirmedStaff.find(c => isConfirmationForStaff(c.confirmation, u) || c.user.id === u.id);
+      const pendingLateItem = pendingLateStaff.find(p => isConfirmationForStaff(p.confirmation, u) || p.user.id === u.id);
+      const notPartItem = notParticipatedStaff.find(np => (np.confirmation && isConfirmationForStaff(np.confirmation, u)) || np.user.id === u.id);
+
+      let status: 'confirmed' | 'missing' | 'pending_late' | 'not_participated' = 'missing';
+      if (confItem) status = 'confirmed';
+      else if (pendingLateItem) status = 'pending_late';
+      else if (notPartItem) status = 'not_participated';
+
+      return {
+        user: u,
+        status,
+        confirmation: confItem?.confirmation || pendingLateItem?.confirmation || notPartItem?.confirmation,
+      };
+    });
+  }, [stats.eligibleStaff, confirmedStaff, pendingLateStaff, notParticipatedStaff]);
+
+  const filteredAllParticipants = allParticipants.filter(item => {
+    const q = searchStaff.toLowerCase();
+    return (
+      item.user.name.toLowerCase().includes(q) ||
+      item.user.email.toLowerCase().includes(q) ||
+      item.user.uNumber.toLowerCase().includes(q)
+    );
+  });
 
   // Filter lists based on searchStaff query
   const filteredMissing = missingStaff.filter(u => {
@@ -164,6 +199,29 @@ export function TopicBreakdownModal({
                   <span>Close Topic for Acknowledgement</span>
                 </button>
               ) : null}
+              {onDeleteTopic && (
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-semibold shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                  title="Delete compliance topic & directive permanently"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                  <span>Delete Topic</span>
+                </button>
+              )}
+              {topic.category === 'WBT' && (
+                <a
+                  href={WBT_TEAMS_UPLOAD_URL}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="px-3 py-1 bg-[#4f52b2] hover:bg-[#44469b] text-white rounded-lg text-xs font-semibold shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                  title="Open Microsoft Teams & SharePoint Certificate Upload folder"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Teams / SharePoint Certificates</span>
+                </a>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-1">
@@ -190,17 +248,17 @@ export function TopicBreakdownModal({
         <div className="p-3 sm:p-4 bg-white border-b border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 text-xs">
           <button
             type="button"
-            onClick={() => setActiveTab('missing')}
+            onClick={() => setActiveTab('all')}
             className={`text-left p-2.5 rounded-xl transition cursor-pointer border shadow-xs ${
-              activeTab === 'missing'
-                ? 'bg-amber-50/70 border-amber-300 ring-1 ring-amber-300'
+              activeTab === 'all'
+                ? 'bg-blue-50/80 border-[#0078D4] ring-1 ring-[#0078D4]'
                 : 'bg-slate-50/80 border-slate-200 hover:border-slate-300'
             }`}
-            title="Click to view all missing / pending personnel"
+            title="Click to view all assigned personnel for this topic"
           >
-            <span className="text-slate-500 block text-[11px]">Eligible Personnel</span>
+            <span className="text-slate-500 block text-[11px]">All Assigned Personnel</span>
             <span className="text-base sm:text-lg font-bold text-slate-900 tabular-nums">{totalEligible}</span>
-            <span className="text-[10px] text-[#0078D4] block mt-0.5">View breakdown ↳</span>
+            <span className="text-[10px] text-[#0078D4] block mt-0.5">View all participants ↳</span>
           </button>
 
           <button
@@ -249,13 +307,57 @@ export function TopicBreakdownModal({
           </button>
         </div>
 
-        {/* Streamlined Search Bar & Actions */}
+        {/* Streamlined Search Bar & Filter Pills */}
         <div className="px-4 py-3 bg-white border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-          <div className="text-slate-600 font-medium flex items-center gap-2">
-            <span>Currently viewing:</span>
-            <span className="font-bold text-[#0078D4] capitalize bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-              {activeTab === 'missing' ? `Missing / Pending (${totalMissing})` : activeTab === 'confirmed' ? `Confirmed / Signed (${totalConfirmed})` : `Late Review (${totalPendingLate})`}
-            </span>
+          <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-lg">
+            <button
+              type="button"
+              onClick={() => setActiveTab('all')}
+              className={`px-3 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
+                activeTab === 'all'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              All Participants ({totalEligible})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('confirmed')}
+              className={`px-3 py-1 rounded-md text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'confirmed'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'text-emerald-700 hover:text-emerald-900'
+              }`}
+            >
+              <CheckCircle2 className="w-3 h-3" />
+              <span>Participated ({totalConfirmed})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('missing')}
+              className={`px-3 py-1 rounded-md text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'missing'
+                  ? 'bg-amber-600 text-white shadow-xs'
+                  : 'text-amber-700 hover:text-amber-900'
+              }`}
+            >
+              <Clock className="w-3 h-3" />
+              <span>Missing ({totalMissing})</span>
+            </button>
+            {totalPendingLate > 0 && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('pending_late')}
+                className={`px-3 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
+                  activeTab === 'pending_late'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-blue-700 hover:text-blue-900'
+                }`}
+              >
+                Late Review ({totalPendingLate})
+              </button>
+            )}
           </div>
 
           {/* Search & Actions */}
@@ -274,7 +376,7 @@ export function TopicBreakdownModal({
             {activeTab === 'missing' && totalMissing > 0 && (
               <button
                 onClick={handleSendAllReminders}
-                className="px-3 py-1.5 font-medium text-[#0078D4] bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded transition flex items-center gap-1 whitespace-nowrap"
+                className="px-3 py-1.5 font-medium text-[#0078D4] bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded transition flex items-center gap-1 whitespace-nowrap cursor-pointer"
               >
                 <Send className="w-3 h-3" />
                 <span>Nudge All ({totalMissing})</span>
@@ -283,7 +385,7 @@ export function TopicBreakdownModal({
 
             <button
               onClick={() => exportSingleTopicReport(stats)}
-              className="px-3 py-1.5 font-semibold text-white bg-[#0078D4] hover:bg-[#106EBE] rounded transition flex items-center gap-1 whitespace-nowrap shadow-xs"
+              className="px-3 py-1.5 font-semibold text-white bg-[#0078D4] hover:bg-[#106EBE] rounded transition flex items-center gap-1 whitespace-nowrap shadow-xs cursor-pointer"
               title="Download full CSV report of confirmed and missing staff"
             >
               <Download className="w-3 h-3" />
@@ -294,6 +396,116 @@ export function TopicBreakdownModal({
 
         {/* Staff Table */}
         <div className="p-0 overflow-y-auto flex-1">
+          {activeTab === 'all' && (
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 sticky top-0 z-10">
+                <tr>
+                  <th className="py-2.5 px-4 font-semibold">Staff Member</th>
+                  <th className="py-2.5 px-4 font-semibold">ID / Email</th>
+                  <th className="py-2.5 px-4 font-semibold">Qualifications</th>
+                  <th className="py-2.5 px-4 font-semibold">Participation Status</th>
+                  <th className="py-2.5 px-4 font-semibold">Confirmed At &amp; Signature</th>
+                  <th className="py-2.5 px-4 font-semibold text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredAllParticipants.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-slate-500">
+                      No participants match the search query.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredAllParticipants.map(item => {
+                    const u = item.user;
+                    const isNudged = reminderSentStaff[u.id];
+                    return (
+                      <tr
+                        key={u.id}
+                        className={`transition ${
+                          item.status === 'confirmed'
+                            ? 'hover:bg-emerald-50/20'
+                            : item.status === 'pending_late'
+                            ? 'hover:bg-blue-50/20'
+                            : 'hover:bg-amber-50/20'
+                        }`}
+                      >
+                        <td className="py-2.5 px-4">
+                          <div className="font-semibold text-slate-900">{u.name}</div>
+                          <div className="text-[11px] text-slate-500">{u.title || u.department || 'Ground Operations'}</div>
+                        </td>
+                        <td className="py-2.5 px-4 font-mono text-[11px] text-slate-600">
+                          <div>{u.uNumber}</div>
+                          <div className="text-slate-400 font-sans">{u.email}</div>
+                        </td>
+                        <td className="py-2.5 px-4 text-[11px] text-slate-600">
+                          {u.isAls ? <span className="mr-1 px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 font-semibold text-[10px]">ALS</span> : null}
+                          {u.isLead ? <span className="mr-1 px-1.5 py-0.2 rounded bg-purple-100 text-purple-800 font-semibold text-[10px]">Lead</span> : null}
+                          {!u.isAls && !u.isLead ? <span className="text-slate-400 font-mono text-[10px]">ALL</span> : null}
+                        </td>
+                        <td className="py-2.5 px-4 whitespace-nowrap">
+                          {item.status === 'confirmed' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              <span>PARTICIPATED</span>
+                            </span>
+                          ) : item.status === 'pending_late' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-900 border border-blue-300">
+                              <Clock className="w-3 h-3 text-blue-600" />
+                              <span>LATE REVIEW</span>
+                            </span>
+                          ) : item.status === 'not_participated' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-300">
+                              <span>NOT PARTICIPATED</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                              <Clock className="w-3 h-3 text-amber-600" />
+                              <span>MISSING</span>
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-4 text-[11px]">
+                          {item.status === 'confirmed' && item.confirmation ? (
+                            <div>
+                              <span className="font-serif italic text-slate-800 block truncate max-w-[180px]">
+                                {item.confirmation.signatureText || u.name}
+                              </span>
+                              <span className="font-mono text-[10px] text-slate-500 tabular-nums">
+                                {item.confirmation.confirmedAt?.slice(0, 19).replace('T', ' ')}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 font-mono text-[10px]">Awaiting signature</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-4 text-right">
+                          {item.status === 'missing' && (
+                            <button
+                              onClick={() => handleSendReminder(u.id)}
+                              disabled={isNudged}
+                              className={`px-2.5 py-1 text-[11px] rounded transition ${
+                                isNudged
+                                  ? 'bg-slate-100 text-slate-400 cursor-default'
+                                  : 'bg-slate-100 hover:bg-blue-50 text-[#0078D4] border border-slate-200 cursor-pointer'
+                              }`}
+                            >
+                              {isNudged ? 'Nudge Sent ✓' : 'Send Reminder'}
+                            </button>
+                          )}
+                          {item.status === 'confirmed' && (
+                            <span className="text-emerald-700 text-[10px] font-semibold">
+                              Verified ✓
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          )}
           {activeTab === 'missing' && (
             <table className="w-full text-left text-xs border-collapse">
               <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 sticky top-0">
@@ -604,6 +816,80 @@ export function TopicBreakdownModal({
                 className="px-4 py-2 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition shadow-xs cursor-pointer"
               >
                 Confirm Reopen Topic
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Topic In-App Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-slate-200 p-5 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2 text-red-600 font-bold text-base">
+                <AlertTriangle className="w-5 h-5" />
+                <span>Delete Compliance Topic</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={isDeleting}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-700 leading-relaxed">
+              Are you sure you want to permanently delete <strong>&ldquo;{topic.title}&rdquo;</strong> from Cloud Firestore?
+            </p>
+
+            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-[11px] text-red-900 space-y-1">
+              <strong className="block font-semibold">This action cannot be undone:</strong>
+              <ul className="list-disc list-inside space-y-0.5 text-red-800">
+                <li>Topic directive and staff assignments will be erased from Firestore.</li>
+                <li>All staff participation and signature audit records will be removed.</li>
+              </ul>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={isDeleting}
+                className="px-3.5 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (onDeleteTopic) {
+                    setIsDeleting(true);
+                    try {
+                      await onDeleteTopic(topic.id);
+                      onClose();
+                    } finally {
+                      setIsDeleting(false);
+                      setShowDeleteConfirm(false);
+                    }
+                  }
+                }}
+                disabled={isDeleting}
+                className="px-4 py-1.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg transition shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isDeleting ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Permanently</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

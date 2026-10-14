@@ -28,13 +28,13 @@ export function StaffEditModal({
   const [title, setTitle] = useState(initialStaff?.title || '');
   const [error, setError] = useState('');
   const [clearingPassword, setClearingPassword] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [passwordResetSuccess, setPasswordResetSuccess] = useState<string | null>(null);
 
   const handleClearPassword = async () => {
     if (!initialStaff) return;
-    if (!window.confirm(`Are you sure you want to clear/reset the password for ${initialStaff.name} (${initialStaff.email})? They will be prompted to set up a new password upon next sign-in.`)) {
-      return;
-    }
     setClearingPassword(true);
+    setPasswordResetSuccess(null);
     try {
       const res = await fetch('/api/auth/admin/users', {
         method: 'POST',
@@ -43,12 +43,15 @@ export function StaffEditModal({
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        alert(data.message);
+        setPasswordResetSuccess(data.message || 'Password cleared. Staff member will set up a new password on next sign-in.');
+        setShowClearConfirm(false);
       } else {
-        alert(data.message || 'Failed to clear password.');
+        setError(data.message || 'Failed to clear password.');
+        setShowClearConfirm(false);
       }
-    } catch (err) {
-      alert('Network error while clearing password.');
+    } catch {
+      setError('Network error while clearing password.');
+      setShowClearConfirm(false);
     } finally {
       setClearingPassword(false);
     }
@@ -253,20 +256,56 @@ export function StaffEditModal({
           </div>
 
           {isEditing && (
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between">
-              <div>
-                <span className="font-semibold text-amber-900 block">Password Setup State</span>
-                <span className="text-[11px] text-amber-700">Clear password to require first-time setup again.</span>
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-semibold text-amber-900 block">Password Setup State</span>
+                  <span className="text-[11px] text-amber-700">Clear password to require first-time setup again.</span>
+                </div>
+                {!showClearConfirm && (
+                  <button
+                    type="button"
+                    onClick={() => setShowClearConfirm(true)}
+                    disabled={clearingPassword}
+                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                  >
+                    <Key className="w-3.5 h-3.5" />
+                    <span>Clear/Reset Password</span>
+                  </button>
+                )}
               </div>
-              <button
-                type="button"
-                onClick={handleClearPassword}
-                disabled={clearingPassword}
-                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-semibold flex items-center gap-1 transition"
-              >
-                <Key className="w-3.5 h-3.5" />
-                <span>{clearingPassword ? 'Clearing...' : 'Clear/Reset Password'}</span>
-              </button>
+
+              {showClearConfirm && (
+                <div className="p-2.5 bg-white border border-amber-300 rounded-md text-xs space-y-2 animate-in fade-in duration-150">
+                  <p className="text-slate-700">
+                    Are you sure you want to clear/reset the password for <strong>{initialStaff?.name}</strong>? They will be prompted to set up a new password upon next sign-in.
+                  </p>
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowClearConfirm(false)}
+                      disabled={clearingPassword}
+                      className="px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-100 rounded border border-slate-300 cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearPassword}
+                      disabled={clearingPassword}
+                      className="px-3 py-1 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded shadow-xs cursor-pointer disabled:opacity-50"
+                    >
+                      {clearingPassword ? 'Clearing...' : 'Confirm Clear Password'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {passwordResetSuccess && (
+                <div className="p-2 bg-emerald-100/70 border border-emerald-300 rounded text-emerald-800 text-xs">
+                  ✓ {passwordResetSuccess}
+                </div>
+              )}
             </div>
           )}
 

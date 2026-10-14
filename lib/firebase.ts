@@ -68,6 +68,26 @@ export async function saveVerificationToFirestore(verification: TopicConfirmatio
     if (verification.reviewedAt) payload.reviewedAt = verification.reviewedAt;
 
     await setDoc(docRef, payload, { merge: true });
+
+    // Also update matching topic_assignment document in Firestore
+    try {
+      const assignmentId = `${verification.topicId}_${verification.userId}`;
+      const assignRef = doc(db, 'topic_assignments', assignmentId);
+      await setDoc(
+        assignRef,
+        {
+          id: assignmentId,
+          topicId: verification.topicId,
+          userId: verification.userId,
+          status: verification.status === 'confirmed' ? 'confirmed' : 'pending',
+          confirmedAt: verification.status === 'confirmed' ? (verification.confirmedAt || new Date().toISOString()) : null,
+        },
+        { merge: true }
+      );
+    } catch (assignErr) {
+      console.warn('Notice syncing topic assignment in Firestore:', assignErr);
+    }
+
     return true;
   } catch (error) {
     console.error('Failed to save compliance verification to Firebase:', error);
@@ -254,6 +274,7 @@ export async function saveTopicToFirestore(topic: Topic, assignedStaff?: User[])
     };
 
     if (topic.customTypeDesc) payload.customTypeDesc = topic.customTypeDesc;
+    if (topic.category) payload.category = topic.category;
     if (Array.isArray(topic.assignedUserIds)) {
       payload.assignedUserIds = topic.assignedUserIds;
     } else {
@@ -559,6 +580,19 @@ export async function deleteTopicFromFirestore(topicId: string): Promise<boolean
       }
     } catch (assignErr) {
       console.warn('Notice deleting topic assignments from Firebase:', assignErr);
+    }
+
+    // Delete corresponding verifications & signatures from compliance_verifications
+    try {
+      const qV = query(collection(db, 'compliance_verifications'), where('topicId', '==', topicId));
+      const snapsV = await getDocs(qV);
+      if (!snapsV.empty) {
+        const batchV = writeBatch(db);
+        snapsV.forEach(s => batchV.delete(s.ref));
+        await batchV.commit();
+      }
+    } catch (verifErr) {
+      console.warn('Notice deleting compliance verifications from Firebase:', verifErr);
     }
 
     return true;

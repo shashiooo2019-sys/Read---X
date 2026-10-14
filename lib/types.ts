@@ -93,6 +93,7 @@ export interface TopicAssignment {
   isAls?: boolean;
   isLead?: boolean;
   staffQualification?: string; // 'ALS', 'Lead', 'ALS & Lead', 'Standard'
+  confirmedAt?: string;
 }
 
 export interface TopicConfirmation {
@@ -102,6 +103,7 @@ export interface TopicConfirmation {
   documentTitle?: string;
   documentVersion?: string;
   userId: string;
+  uNumber?: string;
   userEmail?: string;
   userName?: string;
   confirmedAt: string; // ISO string
@@ -154,3 +156,7 @@ export interface DateFilterOptions {
   selectedYear?: number; // e.g. 2026
   selectedWeekNum?: number; // 1-52
 }
+
+export const WBT_TEAMS_UPLOAD_URL =
+  'https://lufthansagroup.sharepoint.com/:f:/r/sites/DELSM-SOLARSTORM/Shared%20Documents/5%EF%B8%8F%E2%83%A3%20ADMIN/Upload%20Certificates%20here?d=w356f678a872d473e9bc44cc22ec8ca52&csf=1&web=1&e=KMfGPT';
+
