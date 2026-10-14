@@ -1,146 +1,44 @@
-export type TargetGroup = 'ALL' | 'ALS' | 'Lead' | 'ALS_AND_LEAD' | 'CUSTOM';
-
-export type TopicType =
-  | 'Document Read and Sign'
-  | 'GPD/GPI Read and Sign'
-  | 'AHD/AHI Read and Sign'
-  | 'Training'
-  | 'Briefing'
-  | 'Role Play'
-  | 'Teams Calls'
-  | 'Ground Ops Community Calls'
-  | 'Vitero Sessions'
-  | 'WBT'
-  | 'Others';
+export type TopicCloseOption = 'mark_participated' | 'mark_not_participated';
 
 export interface User {
   id: string;
-  uNumber: string;
-  name: string;
-  email: string; // Active login identity
-  loginEmail?: string; // Permanently registered login email
-  workEmail?: string; // M365 work email (if private email is used as login)
-  emailDomain?: string; // dlh.de, swiss.com, etc.
-  passwordHash?: string; // Password hash for sign-in after initial setup
-  isAls: boolean;
-  isLead: boolean;
-  isAdmin: boolean;
-  isSuperAdmin?: boolean; // New superadmin role
-  department?: string;
-  title?: string;
-  accountStatus?: 'active' | 'disabled' | 'suspended';
-  approvalStatus?: 'approved' | 'pending' | 'rejected';
-  isApprovedPrivateEmail?: boolean;
-  approvedBy?: string;
-  approvedAt?: string;
-  createdAt?: string;
-  lastLoginAt?: string;
-}
-
-export interface ApprovedUser {
-  id: string;
-  name: string;
-  workEmail: string;
-  loginEmail: string;
-  uNumber: string;
-  approvedBy: string;
-  approvedAt: string;
-  status: 'approved' | 'revoked';
-  notes?: string;
-}
-
-export type TopicCloseOption = 'mark_participated' | 'mark_not_participated';
-
-export interface Topic {
-  id: string;
-  title: string;
-  type: TopicType;
-  category?: 'Standard' | 'WBT'; // Added category
-  customTypeDesc?: string;
-  targetGroup: TargetGroup;
-  assignedUserIds?: string[]; // Specific staff IDs if chosen
-  content: string;
-  attachmentUrl?: string;
-  attachmentName?: string;
-  publishedDate?: string; // YYYY-MM-DD
-  effectiveDate: string; // YYYY-MM-DD
-  dueDate: string; // YYYY-MM-DD
-  createdAt: string; // ISO string
-  createdBy: string; // User email or name
-  version?: string;
-  isClosed?: boolean; // Closed for acknowledgement by Admin
-  closedAt?: string; // ISO string
-  closedBy?: string; // Admin user email
-  closedReason?: string;
-  closedOption?: TopicCloseOption;
-}
-
-export interface TopicAssignment {
-  id: string; // `${topicId}_${userId}`
-  topicId: string;
-  topicTitle: string;
-  topicType: TopicType;
-  userId: string;
-  userName: string;
-  userEmail: string;
-  uNumber: string;
-  targetGroup: TargetGroup;
-  isIndividuallySelected: boolean;
-  assignedAt: string; // ISO timestamp
-  dueDate: string; // YYYY-MM-DD
-  status: 'assigned' | 'confirmed' | 'pending' | 'not_participated';
-  // Staff qualifications and attributes
-  isAls?: boolean;
-  isLead?: boolean;
-  staffQualification?: string; // 'ALS', 'Lead', 'ALS & Lead', 'Standard'
-  confirmedAt?: string;
-}
-
-export interface TopicConfirmation {
-  id: string;
-  topicId: string;
-  documentId?: string;
-  documentTitle?: string;
-  documentVersion?: string;
-  userId: string;
   uNumber?: string;
-  userEmail?: string;
-  userName?: string;
-  confirmedAt: string; // ISO string
-  status: 'confirmed' | 'pending' | 're_sign_required' | 'pending_late_approval' | 'rejected' | 'not_participated' | 'pending_wbt_verification'; // New status
-  signatureText?: string;
-  ipAddress?: string;
-  lateReason?: string; // Remark explaining delay in acknowledgment
-  lateRemark?: string;
-  isLate?: boolean;
-  adminReviewNote?: string;
-  reviewedBy?: string;
-  reviewedAt?: string;
+  name: string;
+  email: string;
+  als?: string;
+  lead?: string;
+  role: 'admin' | 'user';
+  isSuperAdmin?: boolean;
+  team?: string;
+  department?: string;
+  password?: string;
+  isPasswordSet?: boolean;
 }
 
-export interface AuthAuditLogItem {
-  id: string;
-  timestamp: string;
-  action:
-    | 'magic_link_requested'
-    | 'magic_link_verified'
-    | 'login_success'
-    | 'logout'
-    | 'email_changed_by_admin'
-    | 'user_disabled'
-    | 'user_reactivated'
-    | 'user_approved'
-    | 'user_created'
-    | 'session_invalidated';
-  userId?: string;
-  performedBy: string;
-  targetEmail?: string;
-  details: string;
-  ipAddress?: string;
-}
+export type TopicType = 
+  | 'WBT'
+  | 'Web-Based Training'
+  | 'Document Read and Sign' 
+  | 'GPD/GPI Read and Sign' 
+  | 'AHD/AHI Read and Sign' 
+  | 'Training' 
+  | 'Briefing' 
+  | 'Role Play' 
+  | 'Teams Calls' 
+  | 'Ground Ops Community Calls'
+  | 'Vitero Sessions'
+  | 'Others'
+  | 'Mandatory' 
+  | 'Standard' 
+  | 'Review'
+  | 'Other';
 
-export type DateFilterType =
-  | 'all'
+export type TargetGroup = 'All' | 'Team' | 'Department' | 'Custom' | 'ALL' | 'ALS' | 'Lead' | 'ALS_AND_LEAD' | 'CUSTOM';
+export type DateFilterType = 
+  | 'all' 
+  | 'week' 
+  | 'month' 
+  | 'range'
   | 'this_month'
   | 'last_one_month'
   | 'week_this_year'
@@ -148,15 +46,59 @@ export type DateFilterType =
   | 'last_one_year'
   | 'custom';
 
-export interface DateFilterOptions {
+export type DateFilterOptions = {
   type: DateFilterType;
-  customStartDate?: string; // YYYY-MM-DD
-  customEndDate?: string; // YYYY-MM-DD
-  selectedMonth?: number; // 0-11
-  selectedYear?: number; // e.g. 2026
-  selectedWeekNum?: number; // 1-52
+  startDate?: string;
+  endDate?: string;
+  weekNumber?: number;
+  year?: number;
+  customStartDate?: string;
+  customEndDate?: string;
+  selectedMonth?: number | string;
+  selectedYear?: number;
+  selectedWeek?: number;
+  selectedWeekNum?: number;
+};
+
+export interface TopicConfirmation {
+  id: string;
+  userId: string;
+  topicId: string;
+  userName?: string;
+  userEmail?: string;
+  documentTitle?: string;
+  isLate?: boolean;
+  lateReason?: string;
+  wbtCertificateUrl?: string;
+  wbtCertificateFileName?: string;
+  wbtNotes?: string;
+  verifiedBy?: string;
+  verifiedAt?: string;
+  confirmedAt: string;
+  status: 'confirmed' | 'not_participated' | 'pending' | 'pending_wbt_verification' | 'rejected';
+  timestamp?: string;
 }
 
-export const WBT_TEAMS_UPLOAD_URL =
-  'https://lufthansagroup.sharepoint.com/:f:/r/sites/DELSM-SOLARSTORM/Shared%20Documents/5%EF%B8%8F%E2%83%A3%20ADMIN/Upload%20Certificates%20here?d=w356f678a872d473e9bc44cc22ec8ca52&csf=1&web=1&e=KMfGPT';
+export interface Topic {
+  id: string;
+  title: string;
+  description: string;
+  content: string;
+  customTypeDesc?: string;
+  category?: string;
+  type: TopicType;
+  targetGroup: TargetGroup;
+  targetTeams?: string[];
+  targetDepartments?: string[];
+  assignedUserIds?: string[];
+  publishedDate?: string;
+  effectiveDate?: string;
+  createdBy: string;
+  createdAt: string;
+  dueDate?: string;
+  status: 'active' | 'closed';
+  isClosed?: boolean;
+  closeOption?: TopicCloseOption;
+}
 
+export const WBT_TEAMS_UPLOAD_URL = 'https://lufthansagroup.sharepoint.com/:f:/r/sites/DELSM-SOLARSTORM/Shared%20Documents/5%EF%B8%8F%E2%83%A3%20ADMIN/Upload%20Certificates%20here?d=w356f678a872d473e9bc44cc22ec8ca52&csf=1&web=1&e=omtJfj';

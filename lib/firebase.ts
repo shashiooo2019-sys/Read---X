@@ -1,741 +1,346 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
 import {
+  initializeFirestore,
+  memoryLocalCache,
   getFirestore,
   doc,
-  setDoc,
-  getDoc,
-  getDocs,
-  deleteDoc,
   collection,
-  writeBatch,
+  setDoc,
+  updateDoc,
+  addDoc,
+  deleteDoc,
+  onSnapshot,
   getDocFromServer,
   query,
   where,
-  Firestore,
+  getDocs,
+  Unsubscribe,
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
-import { TopicConfirmation, Topic, User, TopicAssignment, TopicCloseOption } from './types';
+import { Topic, User, TopicConfirmation } from './types';
 
-// Initialize Firebase App
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+// Step 1: Initialize Firebase App
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-// Target Firestore instance (using database ID from config if defined)
-export const db: Firestore =
-  firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
-    ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
-    : getFirestore(app);
+// Step 1 Constraint: Disable local/offline persistence using memoryLocalCache()
+export const db = initializeFirestore(app, {
+  localCache: memoryLocalCache(),
+}, firebaseConfig.firestoreDatabaseId || '(default)');
 
-// Connection verification test
-export async function testFirebaseConnection(): Promise<boolean> {
+export const auth = getAuth(app);
+
+// Test server connection directly
+export async function validateCloudConnection(): Promise<boolean> {
   try {
-    const testRef = doc(db, 'test', 'connection');
-    await getDocFromServer(testRef).catch(() => null);
-    return true;
-  } catch (err) {
-    console.warn('Firebase Firestore connection notice:', err);
-    return false;
-  }
-}
-
-// ==========================================
-// 1. COMPLIANCE VERIFICATIONS (Confirmations)
-// ==========================================
-
-export async function saveVerificationToFirestore(verification: TopicConfirmation): Promise<boolean> {
-  try {
-    const docId = verification.id || `conf-${Date.now()}`;
-    const docRef = doc(db, 'compliance_verifications', docId);
-    
-    // Clean undefined fields for Firestore
-    const payload: Record<string, any> = {
-      id: docId,
-      topicId: verification.topicId,
-      userId: verification.userId,
-      confirmedAt: verification.confirmedAt || new Date().toISOString(),
-      status: verification.status || 'confirmed',
-    };
-
-    if (verification.documentId) payload.documentId = verification.documentId;
-    if (verification.documentTitle) payload.documentTitle = verification.documentTitle;
-    if (verification.documentVersion) payload.documentVersion = verification.documentVersion;
-    if (verification.userEmail) payload.userEmail = verification.userEmail;
-    if (verification.userName) payload.userName = verification.userName;
-    if (verification.signatureText) payload.signatureText = verification.signatureText;
-    if (verification.ipAddress) payload.ipAddress = verification.ipAddress;
-    if (verification.lateReason) payload.lateReason = verification.lateReason;
-    if (verification.adminReviewNote) payload.adminReviewNote = verification.adminReviewNote;
-    if (verification.reviewedBy) payload.reviewedBy = verification.reviewedBy;
-    if (verification.reviewedAt) payload.reviewedAt = verification.reviewedAt;
-
-    await setDoc(docRef, payload, { merge: true });
-
-    // Also update matching topic_assignment document in Firestore
-    try {
-      const assignmentId = `${verification.topicId}_${verification.userId}`;
-      const assignRef = doc(db, 'topic_assignments', assignmentId);
-      await setDoc(
-        assignRef,
-        {
-          id: assignmentId,
-          topicId: verification.topicId,
-          userId: verification.userId,
-          status: verification.status === 'confirmed' ? 'confirmed' : 'pending',
-          confirmedAt: verification.status === 'confirmed' ? (verification.confirmedAt || new Date().toISOString()) : null,
-        },
-        { merge: true }
-      );
-    } catch (assignErr) {
-      console.warn('Notice syncing topic assignment in Firestore:', assignErr);
-    }
-
+    const testDocRef = doc(db, 'system', 'health-check');
+    await getDocFromServer(testDocRef).catch(() => null);
+    console.log('Successfully connected directly to Cloud Firestore.');
     return true;
   } catch (error) {
-    console.error('Failed to save compliance verification to Firebase:', error);
+    console.warn('Cloud connection check note:', error);
     return false;
   }
 }
 
-export async function saveAllVerificationsToFirestore(verifications: TopicConfirmation[]): Promise<boolean> {
-  try {
-    if (!verifications || verifications.length === 0) return true;
-    
-    // Chunk batches into max 450 writes
-    const chunkSize = 400;
-    for (let i = 0; i < verifications.length; i += chunkSize) {
-      const chunk = verifications.slice(i, i + chunkSize);
-      const batch = writeBatch(db);
+// -------------------------------------------------------------
+// Real-Time Listeners (Rule 2)
+// -------------------------------------------------------------
 
-      for (const verification of chunk) {
-        const docId = verification.id || `conf-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-        const docRef = doc(db, 'compliance_verifications', docId);
-        
-        const payload: Record<string, any> = {
-          id: docId,
-          topicId: verification.topicId,
-          userId: verification.userId,
-          confirmedAt: verification.confirmedAt || new Date().toISOString(),
-          status: verification.status || 'confirmed',
-        };
-
-        if (verification.documentId) payload.documentId = verification.documentId;
-        if (verification.documentTitle) payload.documentTitle = verification.documentTitle;
-        if (verification.documentVersion) payload.documentVersion = verification.documentVersion;
-        if (verification.userEmail) payload.userEmail = verification.userEmail;
-        if (verification.userName) payload.userName = verification.userName;
-        if (verification.signatureText) payload.signatureText = verification.signatureText;
-        if (verification.ipAddress) payload.ipAddress = verification.ipAddress;
-        if (verification.lateReason) payload.lateReason = verification.lateReason;
-        if (verification.adminReviewNote) payload.adminReviewNote = verification.adminReviewNote;
-        if (verification.reviewedBy) payload.reviewedBy = verification.reviewedBy;
-        if (verification.reviewedAt) payload.reviewedAt = verification.reviewedAt;
-
-        batch.set(docRef, payload, { merge: true });
-      }
-
-      await batch.commit();
-    }
-    return true;
-  } catch (error) {
-    console.error('Failed to batch save verifications to Firebase:', error);
-    return false;
-  }
-}
-
-export async function fetchVerificationsFromFirestore(): Promise<TopicConfirmation[]> {
-  try {
-    const colRef = collection(db, 'compliance_verifications');
-    const snapshot = await getDocs(colRef);
-    const results: TopicConfirmation[] = [];
-    
-    snapshot.forEach(docSnap => {
-      const data = docSnap.data() as TopicConfirmation;
-      results.push({
-        ...data,
-        id: docSnap.id,
+export function subscribeToTopics(callback: (topics: Topic[]) => void): Unsubscribe {
+  const topicsCollection = collection(db, 'topics');
+  return onSnapshot(
+    topicsCollection,
+    (snapshot) => {
+      const topicList: Topic[] = [];
+      snapshot.forEach((docSnap) => {
+        topicList.push({ id: docSnap.id, ...docSnap.data() } as Topic);
       });
-    });
-
-    return results;
-  } catch (error) {
-    console.warn('Could not fetch verifications from Firebase:', error);
-    return [];
-  }
-}
-
-export async function deleteVerificationFromFirestore(verificationId: string): Promise<boolean> {
-  try {
-    const docRef = doc(db, 'compliance_verifications', verificationId);
-    await deleteDoc(docRef);
-    return true;
-  } catch (error) {
-    console.error('Failed to delete verification from Firebase:', error);
-    return false;
-  }
-}
-
-// ==========================================
-// 2. SAVED PASSWORDS
-// ==========================================
-
-export interface UserPasswordRecord {
-  userId: string;
-  email: string;
-  uNumber?: string;
-  passwordHash: string;
-  updatedAt: string;
-  createdAt?: string;
-}
-
-export async function savePasswordToFirestore(
-  userId: string,
-  email: string,
-  passwordHash: string,
-  uNumber?: string
-): Promise<boolean> {
-  try {
-    const docRef = doc(db, 'user_passwords', userId);
-    const payload: UserPasswordRecord = {
-      userId,
-      email: email.trim().toLowerCase(),
-      uNumber: uNumber || '',
-      passwordHash,
-      updatedAt: new Date().toISOString(),
-    };
-    await setDoc(docRef, payload, { merge: true });
-    return true;
-  } catch (error) {
-    console.error('Failed to save password to Firebase:', error);
-    return false;
-  }
-}
-
-export async function fetchPasswordFromFirestore(userId: string): Promise<UserPasswordRecord | null> {
-  try {
-    const docRef = doc(db, 'user_passwords', userId);
-    const snap = await getDoc(docRef);
-    if (snap.exists()) {
-      return snap.data() as UserPasswordRecord;
+      callback(topicList);
+    },
+    (error) => {
+      console.error('Real-time topic listener error:', error);
     }
-    return null;
-  } catch (error) {
-    console.warn('Failed to fetch password from Firebase for user:', userId, error);
-    return null;
-  }
+  );
 }
 
-export async function deletePasswordFromFirestore(userId: string): Promise<boolean> {
-  try {
-    const docRef = doc(db, 'user_passwords', userId);
-    await deleteDoc(docRef);
-    return true;
-  } catch (error) {
-    console.error('Failed to delete password from Firebase:', error);
-    return false;
-  }
+export function subscribeToUsers(callback: (users: User[]) => void): Unsubscribe {
+  const usersCollection = collection(db, 'users');
+  return onSnapshot(
+    usersCollection,
+    (snapshot) => {
+      const userList: User[] = [];
+      snapshot.forEach((docSnap) => {
+        userList.push({ id: docSnap.id, ...docSnap.data() } as User);
+      });
+      callback(userList);
+    },
+    (error) => {
+      console.error('Real-time user listener error:', error);
+    }
+  );
 }
 
-export async function fetchAllPasswordsFromFirestore(): Promise<Map<string, UserPasswordRecord>> {
-  const map = new Map<string, UserPasswordRecord>();
-  try {
-    const colRef = collection(db, 'user_passwords');
-    const snapshot = await getDocs(colRef);
-    snapshot.forEach(docSnap => {
-      const data = docSnap.data() as UserPasswordRecord;
-      map.set(docSnap.id, data);
-      if (data.email) {
-        map.set(data.email.toLowerCase(), data);
-      }
-    });
-  } catch (error) {
-    console.warn('Failed to load all passwords from Firebase:', error);
-  }
-  return map;
+export function subscribeToConfirmations(callback: (confirmations: TopicConfirmation[]) => void): Unsubscribe {
+  const confirmationsCollection = collection(db, 'confirmations');
+  return onSnapshot(
+    confirmationsCollection,
+    (snapshot) => {
+      const confList: TopicConfirmation[] = [];
+      snapshot.forEach((docSnap) => {
+        confList.push({ id: docSnap.id, ...docSnap.data() } as TopicConfirmation);
+      });
+      callback(confList);
+    },
+    (error) => {
+      console.error('Real-time confirmation listener error:', error);
+    }
+  );
 }
 
-// ==========================================
-// 3. TOPICS & STAFF ASSIGNMENTS SYNC
-// ==========================================
+// -------------------------------------------------------------
+// Strict Cloud Validation Workflow (Rule 3)
+// -------------------------------------------------------------
 
-export async function saveTopicToFirestore(topic: Topic, assignedStaff?: User[]): Promise<boolean> {
+export interface CloudWriteResult<T> {
+  success: boolean;
+  message: string;
+  data?: T;
+  error?: string;
+}
+
+/**
+ * Executes a 3-Step Cloud Verification Workflow for document writes:
+ * Step 1: Await write promise to Cloud Firestore
+ * Step 2: Perform fresh getDocFromServer() query directly from live backend
+ * Step 3: Compare written vs server data, and confirm "Successfully uploaded to the CLOUD"
+ */
+export async function saveTopicToCloud(topic: Topic): Promise<CloudWriteResult<Topic>> {
+  const topicRef = doc(db, 'topics', topic.id);
+  const payload = {
+    title: topic.title,
+    description: topic.description || '',
+    content: topic.content || '',
+    type: topic.type,
+    targetGroup: topic.targetGroup,
+    dueDate: topic.dueDate || '',
+    publishedDate: topic.publishedDate || new Date().toISOString().split('T')[0],
+    createdBy: topic.createdBy,
+    createdAt: topic.createdAt || new Date().toISOString(),
+    status: topic.status || 'active',
+  };
+
   try {
-    const docRef = doc(db, 'topics', topic.id);
-    
-    // Clean all undefined fields before saving to Firestore
-    const payload: Record<string, any> = {
-      id: topic.id,
-      title: topic.title,
-      type: topic.type,
-      targetGroup: topic.targetGroup,
-      content: topic.content,
-      effectiveDate: topic.effectiveDate,
-      dueDate: topic.dueDate,
-      createdAt: topic.createdAt || new Date().toISOString(),
-      createdBy: topic.createdBy || 'Administrator',
-    };
+    // Step 1: Await Cloud Write
+    await setDoc(topicRef, payload, { merge: true });
 
-    if (topic.customTypeDesc) payload.customTypeDesc = topic.customTypeDesc;
-    if (topic.category) payload.category = topic.category;
-    if (Array.isArray(topic.assignedUserIds)) {
-      payload.assignedUserIds = topic.assignedUserIds;
+    // Step 2: Explicitly query fresh data directly from live cloud server
+    const serverSnap = await getDocFromServer(topicRef);
+
+    if (!serverSnap.exists()) {
+      throw new Error('Verification failed: Document not found on Cloud server.');
+    }
+
+    const serverData = serverSnap.data();
+
+    // Step 3: Compare payload with server-fetched data
+    if (serverData.title === payload.title && serverData.type === payload.type) {
+      const verifiedTopic = { id: serverSnap.id, ...serverData } as Topic;
+      return {
+        success: true,
+        message: 'Successfully uploaded to the CLOUD',
+        data: verifiedTopic,
+      };
     } else {
-      payload.assignedUserIds = [];
+      throw new Error('Data mismatch between local payload and verified Cloud snapshot.');
     }
-    if (topic.attachmentUrl) payload.attachmentUrl = topic.attachmentUrl;
-    if (topic.attachmentName) payload.attachmentName = topic.attachmentName;
-    if (topic.publishedDate) payload.publishedDate = topic.publishedDate;
-    if (topic.version) payload.version = topic.version;
-    if (typeof topic.isClosed === 'boolean') payload.isClosed = topic.isClosed;
-    if (topic.closedAt) payload.closedAt = topic.closedAt;
-    if (topic.closedBy) payload.closedBy = topic.closedBy;
-    if (topic.closedReason) payload.closedReason = topic.closedReason;
-    if (topic.closedOption) payload.closedOption = topic.closedOption;
-
-    await setDoc(docRef, payload, { merge: true });
-
-    // Save assignments to Firestore if staff members provided
-    if (assignedStaff && assignedStaff.length > 0) {
-      await saveTopicAssignmentsToFirestore(topic, assignedStaff);
-    }
-
-    return true;
-  } catch (error) {
-    console.error('Failed to save topic to Firebase:', error);
-    return false;
-  }
-}
-
-export async function saveTopicAssignmentsToFirestore(
-  topic: Topic,
-  staffMembers: User[]
-): Promise<boolean> {
-  try {
-    if (!staffMembers || staffMembers.length === 0) return true;
-    
-    const chunkSize = 400;
-    for (let i = 0; i < staffMembers.length; i += chunkSize) {
-      const chunk = staffMembers.slice(i, i + chunkSize);
-      const batch = writeBatch(db);
-
-      for (const staff of chunk) {
-        const assignmentId = `${topic.id}_${staff.id}`;
-        const assignmentRef = doc(db, 'topic_assignments', assignmentId);
-
-        const qualificationStr =
-          staff.isAls && staff.isLead
-            ? 'ALS & Lead'
-            : staff.isAls
-            ? 'ALS'
-            : staff.isLead
-            ? 'Lead'
-            : 'Standard';
-
-        const assignmentData: TopicAssignment = {
-          id: assignmentId,
-          topicId: topic.id,
-          topicTitle: topic.title,
-          topicType: topic.type,
-          userId: staff.id,
-          userName: staff.name,
-          userEmail: staff.email,
-          uNumber: staff.uNumber,
-          targetGroup: topic.targetGroup,
-          isIndividuallySelected: Boolean(topic.assignedUserIds && topic.assignedUserIds.includes(staff.id)),
-          assignedAt: topic.createdAt || new Date().toISOString(),
-          dueDate: topic.dueDate,
-          status: 'assigned',
-          isAls: Boolean(staff.isAls),
-          isLead: Boolean(staff.isLead),
-          staffQualification: qualificationStr,
-        };
-
-        batch.set(assignmentRef, assignmentData, { merge: true });
-      }
-
-      await batch.commit();
-    }
-    return true;
-  } catch (error) {
-    console.error('Failed to save topic assignments to Firebase:', error);
-    return false;
-  }
-}
-
-export async function closeTopicForAcknowledgementInFirestore(
-  topicId: string,
-  adminEmail: string,
-  unconfirmedStaff: User[] = [],
-  option: TopicCloseOption = 'mark_participated'
-): Promise<{ success: boolean; closedCount: number }> {
-  try {
-    const topicRef = doc(db, 'topics', topicId);
-    const nowIso = new Date().toISOString();
-    const reasonText =
-      option === 'mark_participated'
-        ? 'Closed for acknowledgement by administrator (Remaining staff marked as participated)'
-        : 'Closed for acknowledgement by administrator (Missing pax marked as not participated)';
-
-    await setDoc(
-      topicRef,
-      {
-        isClosed: true,
-        closedAt: nowIso,
-        closedBy: adminEmail,
-        closedReason: reasonText,
-        closedOption: option,
-      },
-      { merge: true }
-    );
-
-    let closedCount = 0;
-    if (unconfirmedStaff.length > 0) {
-      const chunkSize = 250;
-      for (let i = 0; i < unconfirmedStaff.length; i += chunkSize) {
-        const chunk = unconfirmedStaff.slice(i, i + chunkSize);
-        const batch = writeBatch(db);
-
-        for (const staff of chunk) {
-          const verifId = `conf-${topicId}-${staff.id}`;
-          const verifRef = doc(db, 'compliance_verifications', verifId);
-          const isParticipated = option === 'mark_participated';
-
-          batch.set(
-            verifRef,
-            {
-              id: verifId,
-              topicId,
-              userId: staff.id,
-              userName: staff.name,
-              userEmail: staff.email,
-              confirmedAt: nowIso,
-              status: isParticipated ? 'confirmed' : 'not_participated',
-              signatureText: isParticipated
-                ? 'Participation Verified by Admin (Closed Session)'
-                : 'Not Participated (Admin Closed Session)',
-              adminReviewNote: isParticipated
-                ? 'Participation verified & confirmed upon admin closure'
-                : 'Marked as Not Participated upon admin session closeout',
-              reviewedBy: adminEmail,
-              reviewedAt: nowIso,
-            },
-            { merge: true }
-          );
-
-          const assignId = `${topicId}_${staff.id}`;
-          const assignRef = doc(db, 'topic_assignments', assignId);
-          batch.set(
-            assignRef,
-            {
-              id: assignId,
-              topicId,
-              userId: staff.id,
-              status: isParticipated ? 'confirmed' : 'pending',
-              confirmedAt: isParticipated ? nowIso : null,
-            },
-            { merge: true }
-          );
-          closedCount++;
-        }
-
-        await batch.commit();
-      }
-    }
-
-    return { success: true, closedCount };
-  } catch (error) {
-    console.error('Failed to close topic for acknowledgement in Firestore:', error);
-    return { success: false, closedCount: 0 };
-  }
-}
-
-export async function reopenTopicInFirestore(
-  topicId: string,
-  adminEmail: string
-): Promise<{ success: boolean; reopenedCount: number }> {
-  try {
-    const topicRef = doc(db, 'topics', topicId);
-    await setDoc(
-      topicRef,
-      {
-        isClosed: false,
-        closedAt: null,
-        closedBy: null,
-        closedReason: null,
-        closedOption: null,
-      },
-      { merge: true }
-    );
-
-    // Query and clean up any verifications generated during closure
-    const verifQuery = query(collection(db, 'compliance_verifications'), where('topicId', '==', topicId));
-    const verifSnap = await getDocs(verifQuery);
-    const batch = writeBatch(db);
-    let reopenedCount = 0;
-
-    for (const docSnap of verifSnap.docs) {
-      const data = docSnap.data();
-      if (
-        data.status === 'not_participated' ||
-        data.signatureText === 'Participation Verified by Admin (Closed Session)' ||
-        data.signatureText === 'Not Participated (Admin Closed Session)'
-      ) {
-        batch.delete(docSnap.ref);
-        reopenedCount++;
-
-        // Reset assignment back to pending
-        const assignId = `${topicId}_${data.userId}`;
-        const assignRef = doc(db, 'topic_assignments', assignId);
-        batch.set(assignRef, { status: 'pending', confirmedAt: null }, { merge: true });
-      }
-    }
-
-    if (reopenedCount > 0) {
-      await batch.commit();
-    }
-
-    return { success: true, reopenedCount };
-  } catch (error) {
-    console.error('Failed to reopen topic in Firestore:', error);
-    return { success: false, reopenedCount: 0 };
-  }
-}
-
-export async function saveAllTopicsAndAssignmentsToFirestore(
-  topics: Topic[],
-  allUsers: User[] = []
-): Promise<{ topicsCount: number; assignmentsCount: number; success: boolean }> {
-  try {
-    const testIds = new Set(['top-101', 'top-102', 'top-103', 'top-104', 'top-105', 'top-106', 'top-107', 'top-108']);
-    const validTopics = topics.filter(t => !testIds.has(t.id) && !t.id?.startsWith('top-10'));
-    
-    let totalAssignments = 0;
-    for (const topic of validTopics) {
-      // Resolve staff assigned to this topic
-      let assignedStaff: User[] = [];
-      if (allUsers.length > 0) {
-        assignedStaff = allUsers.filter(u => {
-          if (topic.targetGroup === 'CUSTOM') {
-            return Boolean(topic.assignedUserIds && topic.assignedUserIds.includes(u.id));
-          }
-          if (topic.assignedUserIds && topic.assignedUserIds.includes(u.id)) {
-            return true;
-          }
-          if (topic.targetGroup === 'ALL') return true;
-          if (topic.targetGroup === 'ALS') return u.isAls === true;
-          if (topic.targetGroup === 'Lead') return u.isLead === true;
-          if (topic.targetGroup === 'ALS_AND_LEAD') return u.isAls === true || u.isLead === true;
-          return false;
-        });
-      } else if (topic.assignedUserIds && topic.assignedUserIds.length > 0) {
-        assignedStaff = topic.assignedUserIds.map(id => ({
-          id,
-          name: id,
-          email: '',
-          uNumber: id,
-          isAls: false,
-          isLead: false,
-          isAdmin: false,
-        }));
-      }
-
-      await saveTopicToFirestore(topic, assignedStaff);
-      totalAssignments += assignedStaff.length;
-    }
-
-    return { topicsCount: validTopics.length, assignmentsCount: totalAssignments, success: true };
-  } catch (err) {
-    console.error('Failed to save all topics and assignments to Firebase:', err);
-    return { topicsCount: 0, assignmentsCount: 0, success: false };
-  }
-}
-
-export async function fetchTopicAssignmentsFromFirestore(topicId?: string): Promise<TopicAssignment[]> {
-  try {
-    const colRef = collection(db, 'topic_assignments');
-    const q = topicId ? query(colRef, where('topicId', '==', topicId)) : colRef;
-    const snapshot = await getDocs(q);
-    const results: TopicAssignment[] = [];
-    snapshot.forEach(docSnap => {
-      results.push(docSnap.data() as TopicAssignment);
-    });
-    return results;
-  } catch (error) {
-    console.warn('Could not fetch topic assignments from Firebase:', error);
-    return [];
-  }
-}
-
-export async function deleteTopicFromFirestore(topicId: string): Promise<boolean> {
-  try {
-    const docRef = doc(db, 'topics', topicId);
-    await deleteDoc(docRef);
-
-    // Delete corresponding assignments from topic_assignments
-    try {
-      const q = query(collection(db, 'topic_assignments'), where('topicId', '==', topicId));
-      const snaps = await getDocs(q);
-      if (!snaps.empty) {
-        const batch = writeBatch(db);
-        snaps.forEach(s => batch.delete(s.ref));
-        await batch.commit();
-      }
-    } catch (assignErr) {
-      console.warn('Notice deleting topic assignments from Firebase:', assignErr);
-    }
-
-    // Delete corresponding verifications & signatures from compliance_verifications
-    try {
-      const qV = query(collection(db, 'compliance_verifications'), where('topicId', '==', topicId));
-      const snapsV = await getDocs(qV);
-      if (!snapsV.empty) {
-        const batchV = writeBatch(db);
-        snapsV.forEach(s => batchV.delete(s.ref));
-        await batchV.commit();
-      }
-    } catch (verifErr) {
-      console.warn('Notice deleting compliance verifications from Firebase:', verifErr);
-    }
-
-    return true;
-  } catch (error) {
-    console.error('Failed to delete topic from Firebase:', error);
-    return false;
-  }
-}
-
-export async function fetchTopicsFromFirestore(): Promise<Topic[]> {
-  try {
-    const colRef = collection(db, 'topics');
-    const snapshot = await getDocs(colRef);
-    const results: Topic[] = [];
-    const testIds = new Set(['top-101', 'top-102', 'top-103', 'top-104', 'top-105', 'top-106', 'top-107', 'top-108']);
-    
-    snapshot.forEach(docSnap => {
-      const data = docSnap.data() as Topic;
-      if (!testIds.has(docSnap.id) && !docSnap.id.startsWith('top-10')) {
-        results.push({
-          ...data,
-          id: docSnap.id,
-        });
-      }
-    });
-    return results;
-  } catch (error) {
-    console.warn('Could not fetch topics from Firebase:', error);
-    return [];
-  }
-}
-
-export async function purgeTestTopicsFromFirestore(): Promise<void> {
-  const testIds = ['top-101', 'top-102', 'top-103', 'top-104', 'top-105', 'top-106', 'top-107', 'top-108'];
-  for (const id of testIds) {
-    try {
-      await deleteDoc(doc(db, 'topics', id));
-    } catch {
-      // ignore
-    }
-  }
-  // Also clean up any test assignments
-  try {
-    for (const id of testIds) {
-      const q = query(collection(db, 'topic_assignments'), where('topicId', '==', id));
-      const snaps = await getDocs(q);
-      if (!snaps.empty) {
-        const batch = writeBatch(db);
-        snaps.forEach(s => batch.delete(s.ref));
-        await batch.commit();
-      }
-    }
-  } catch {
-    // ignore
-  }
-}
-
-export async function saveUserToFirestore(user: User): Promise<boolean> {
-  try {
-    const docRef = doc(db, 'users', user.id);
-    const payload: Record<string, any> = {
-      id: user.id,
-      uNumber: user.uNumber,
-      name: user.name,
-      email: user.email,
-      isAls: Boolean(user.isAls),
-      isLead: Boolean(user.isLead),
-      isAdmin: Boolean(user.isAdmin),
-      isSuperAdmin: Boolean(user.isSuperAdmin),
+  } catch (error: any) {
+    console.error('Firestore Cloud Write Error:', error);
+    return {
+      success: false,
+      message: 'Cloud verification failed',
+      error: error?.message || String(error),
     };
-    if (user.loginEmail) payload.loginEmail = user.loginEmail;
-    if (user.workEmail) payload.workEmail = user.workEmail;
-    if (user.department) payload.department = user.department;
-    if (user.title) payload.title = user.title;
-    if (user.accountStatus) payload.accountStatus = user.accountStatus;
-    if (user.approvalStatus) payload.approvalStatus = user.approvalStatus;
+  }
+}
 
-    await setDoc(docRef, payload, { merge: true });
+export async function updateTopicStatusInCloud(
+  topicId: string,
+  status: 'active' | 'closed',
+  closeOption?: string
+): Promise<CloudWriteResult<{ status: string }>> {
+  const topicRef = doc(db, 'topics', topicId);
+  const updatePayload: Record<string, any> = { status };
+  if (closeOption) updatePayload.closeOption = closeOption;
+
+  try {
+    // Step 1: Write update to cloud
+    await updateDoc(topicRef, updatePayload);
+
+    // Step 2: Fresh query directly from server
+    const serverSnap = await getDocFromServer(topicRef);
+    if (!serverSnap.exists()) {
+      throw new Error('Document does not exist on Cloud server.');
+    }
+
+    const serverData = serverSnap.data();
+
+    // Step 3: Validate server match
+    if (serverData.status === status) {
+      return {
+        success: true,
+        message: 'Successfully uploaded to the CLOUD',
+        data: { status: serverData.status },
+      };
+    } else {
+      throw new Error('Cloud status verification mismatched.');
+    }
+  } catch (error: any) {
+    console.error('Firestore Status Update Error:', error);
+    return {
+      success: false,
+      message: 'Cloud verification failed',
+      error: error?.message || String(error),
+    };
+  }
+}
+
+export async function saveConfirmationToCloud(
+  confirmation: TopicConfirmation
+): Promise<CloudWriteResult<TopicConfirmation>> {
+  const confRef = doc(db, 'confirmations', confirmation.id);
+  const payload: Record<string, any> = {
+    userId: confirmation.userId,
+    topicId: confirmation.topicId,
+    userName: confirmation.userName || '',
+    userEmail: confirmation.userEmail || '',
+    documentTitle: confirmation.documentTitle || '',
+    isLate: !!confirmation.isLate,
+    lateReason: confirmation.lateReason || '',
+    confirmedAt: confirmation.confirmedAt || new Date().toISOString(),
+    status: confirmation.status,
+  };
+
+  if (confirmation.wbtCertificateUrl) payload.wbtCertificateUrl = confirmation.wbtCertificateUrl;
+  if (confirmation.wbtCertificateFileName) payload.wbtCertificateFileName = confirmation.wbtCertificateFileName;
+  if (confirmation.wbtNotes) payload.wbtNotes = confirmation.wbtNotes;
+  if (confirmation.verifiedBy) payload.verifiedBy = confirmation.verifiedBy;
+  if (confirmation.verifiedAt) payload.verifiedAt = confirmation.verifiedAt;
+
+  try {
+    // Step 1: Write to Cloud
+    await setDoc(confRef, payload, { merge: true });
+
+    // Step 2: Fresh query from live server
+    const serverSnap = await getDocFromServer(confRef);
+    if (!serverSnap.exists()) {
+      throw new Error('Confirmation snapshot not present on Cloud server.');
+    }
+
+    const serverData = serverSnap.data();
+
+    // Step 3: Match check
+    if (serverData.userId === payload.userId && serverData.topicId === payload.topicId) {
+      return {
+        success: true,
+        message: 'Successfully uploaded to the CLOUD',
+        data: { id: serverSnap.id, ...serverData } as TopicConfirmation,
+      };
+    } else {
+      throw new Error('Cloud acknowledgment verification mismatched.');
+    }
+  } catch (error: any) {
+    console.error('Firestore Confirmation Error:', error);
+    return {
+      success: false,
+      message: 'Cloud verification failed',
+      error: error?.message || String(error),
+    };
+  }
+}
+
+export async function saveUserToCloud(user: User): Promise<CloudWriteResult<User>> {
+  const userRef = doc(db, 'users', user.id);
+  const payload: Record<string, any> = {
+    name: user.name,
+    email: user.email,
+    uNumber: user.uNumber || '',
+    als: user.als || '',
+    lead: user.lead || '',
+    role: user.role,
+    isSuperAdmin: !!user.isSuperAdmin,
+    team: user.team || '',
+    department: user.department || '',
+    isPasswordSet: !!user.isPasswordSet,
+  };
+  if (user.password !== undefined) payload.password = user.password;
+
+  try {
+    await setDoc(userRef, payload, { merge: true });
+    const serverSnap = await getDocFromServer(userRef);
+
+    if (serverSnap.exists() && serverSnap.data().email === payload.email) {
+      return {
+        success: true,
+        message: 'Successfully uploaded to the CLOUD',
+        data: { id: serverSnap.id, ...serverSnap.data() } as User,
+      };
+    } else {
+      throw new Error('User cloud record mismatch.');
+    }
+  } catch (error: any) {
+    return {
+      success: false,
+      message: 'Cloud user save failed',
+      error: error?.message || String(error),
+    };
+  }
+}
+
+export async function deleteUserFromCloud(userId: string): Promise<boolean> {
+  try {
+    const userRef = doc(db, 'users', userId);
+    await deleteDoc(userRef);
     return true;
   } catch (error) {
-    console.error('Failed to save user to Firebase:', error);
+    console.error('Error deleting user from cloud:', error);
     return false;
   }
 }
 
-export async function fetchUsersFromFirestore(): Promise<User[]> {
+export async function deleteTopicFromCloud(topicId: string, topicTitle?: string): Promise<boolean> {
   try {
-    const colRef = collection(db, 'users');
-    const snapshot = await getDocs(colRef);
-    const results: User[] = [];
-    snapshot.forEach(docSnap => {
-      results.push(docSnap.data() as User);
-    });
-    return results;
-  } catch (error) {
-    console.warn('Could not fetch users from Firebase:', error);
-    return [];
-  }
-}
+    const topicRef = doc(db, 'topics', topicId);
+    await deleteDoc(topicRef);
 
-export async function deleteUserFromFirestore(userId: string): Promise<boolean> {
-  try {
-    const docRef = doc(db, 'users', userId);
-    await deleteDoc(docRef);
-    return true;
-  } catch (error) {
-    console.error('Failed to delete user from Firebase:', error);
-    return false;
-  }
-}
-
-export async function saveAllUsersToFirestore(users: User[]): Promise<boolean> {
-  try {
-    if (!users || users.length === 0) return true;
-    const chunkSize = 400;
-    for (let i = 0; i < users.length; i += chunkSize) {
-      const chunk = users.slice(i, i + chunkSize);
-      const batch = writeBatch(db);
-      for (const u of chunk) {
-        const docRef = doc(db, 'users', u.id);
-        const payload: Record<string, any> = {
-          id: u.id,
-          uNumber: u.uNumber,
-          name: u.name,
-          email: u.email,
-          isAls: Boolean(u.isAls),
-          isLead: Boolean(u.isLead),
-          isAdmin: Boolean(u.isAdmin),
-          isSuperAdmin: Boolean(u.isSuperAdmin),
-        };
-        if (u.loginEmail) payload.loginEmail = u.loginEmail;
-        if (u.workEmail) payload.workEmail = u.workEmail;
-        if (u.department) payload.department = u.department;
-        if (u.title) payload.title = u.title;
-        if (u.accountStatus) payload.accountStatus = u.accountStatus;
-        if (u.approvalStatus) payload.approvalStatus = u.approvalStatus;
-        batch.set(docRef, payload, { merge: true });
+    if (topicTitle) {
+      try {
+        const q = query(collection(db, 'topics'), where('title', '==', topicTitle));
+        const querySnap = await getDocs(q);
+        for (const d of querySnap.docs) {
+          if (d.id !== topicId) {
+            await deleteDoc(d.ref);
+          }
+        }
+      } catch {
+        // Query filter fallback if index not created
       }
-      await batch.commit();
     }
     return true;
   } catch (error) {
-    console.error('Failed to batch save users to Firebase:', error);
+    console.error('Error deleting topic from cloud:', error);
     return false;
   }
+}
+
+export async function saveAllTopicsAndAssignmentsToFirestore(topics: Topic[], users: User[]) {
+  let savedTopics = 0;
+  for (const topic of topics) {
+    const res = await saveTopicToCloud(topic);
+    if (res.success) savedTopics++;
+  }
+  for (const user of users) {
+    await saveUserToCloud(user);
+  }
+  return { success: true, topicsCount: savedTopics, assignmentsCount: users.length };
 }

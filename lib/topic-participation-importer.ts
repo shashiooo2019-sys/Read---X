@@ -1,629 +1,502 @@
 import * as XLSX from 'xlsx';
-import { Topic, User, TopicConfirmation, TopicAssignment, TargetGroup, TopicType } from './types';
-import { INITIAL_STAFF_ROSTER } from './roster-data';
+import { User, Topic } from './types';
 
-export interface ParsedTopicParticipationRow {
+export interface TopicParticipationRecord {
+  userId: string;
+  userName: string;
+  userEmail: string;
+  uNumber?: string;
   topicId: string;
   topicTitle: string;
-  topicType: TopicType;
-  targetGroup: TargetGroup;
-  uNumber: string;
-  staffName: string;
-  email: string;
-  isAls: boolean;
-  isLead: boolean;
-  status: 'confirmed' | 'pending' | 'not_participated' | 'pending_late_approval';
-  confirmedAt?: string;
+  topicType?: string;
+  targetGroup?: string;
+  als?: string;
+  lead?: string;
+  confirmedAt: string;
+  status: 'confirmed' | 'pending_wbt_verification' | 'rejected' | 'missing';
   signature?: string;
-}
-
-export interface TopicParticipationSummary {
-  topic: Topic;
-  rows: ParsedTopicParticipationRow[];
-  participatedRows: ParsedTopicParticipationRow[];
-  missingRows: ParsedTopicParticipationRow[];
-  totalAssigned: number;
-  totalConfirmed: number;
-  totalPending: number;
-  completionRate: number;
+  notes?: string;
 }
 
 export interface TopicParticipationImportResult {
-  rows: ParsedTopicParticipationRow[];
-  topics: Topic[];
-  topicSummaries: TopicParticipationSummary[];
-  users: User[];
-  confirmations: TopicConfirmation[];
-  assignments: TopicAssignment[];
-  stats: {
-    totalRows: number;
-    totalTopics: number;
-    totalStaff: number;
-    totalConfirmed: number;
-    totalPending: number;
+  records: TopicParticipationRecord[];
+  newUsersToSave?: User[];
+  newTopicsToSave?: Topic[];
+  matchedStaffCount: number;
+  matchedTopicsCount: number;
+  unmatchedStaff: string[];
+  unmatchedTopics: string[];
+  totalRowsProcessed: number;
+  errors: string[];
+}
+
+/**
+ * Normalizes strings for flexible fuzzy header/field comparison
+ */
+function normalizeStr(str: string): string {
+  return (str || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Checks if a cell value represents a positive participation/confirmation indicator
+ */
+function isPositiveIndicator(val: any): boolean {
+  if (val === null || val === undefined) return false;
+  const str = String(val).trim().toLowerCase();
+  if (!str || str === '0' || str === 'no' || str === 'false' || str === 'n' || str === 'missing' || str === 'pending' || str === 'unconfirmed' || str === 'not confirmed' || str === 'rejected' || str === 'not started' || str === 'incomplete') {
+    return false;
+  }
+  return (
+    str === 'yes' ||
+    str === '1' ||
+    str === 'y' ||
+    str === 'true' ||
+    str === 'confirmed' ||
+    str === 'confirm' ||
+    str === 'completed' ||
+    str === 'participated' ||
+    str === 'pass' ||
+    str === 'passed' ||
+    str === 'ok' ||
+    str === 'signed' ||
+    str === 'done' ||
+    str === 'x font' ||
+    str === 'x' ||
+    str === 'v' ||
+    !isNaN(Date.parse(str))
+  );
+}
+
+/**
+ * Parses binary or string content (XLSX, XLS, CSV, TSV) into a structured participation import result
+ */
+export function parseParticipationFileContent(
+  fileContent: ArrayBuffer | string,
+  users: User[],
+  topics: Topic[]
+): TopicParticipationImportResult {
+  const result: TopicParticipationImportResult = {
+    records: [],
+    newUsersToSave: [],
+    newTopicsToSave: [],
+    matchedStaffCount: 0,
+    matchedTopicsCount: 0,
+    unmatchedStaff: [],
+    unmatchedTopics: [],
+    totalRowsProcessed: 0,
+    errors: [],
   };
-}
 
-function cleanString(val: any): string {
-  if (val === null || val === undefined) return '';
-  return String(val).trim();
-}
-
-function normalizeHeader(header: string): string {
-  return header
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '');
-}
-
-export function normalizeTopicDirectiveKey(title: string): string {
-  let norm = (title || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, ' ')
-    .replace(/\s+/g, ' ');
-  // Trim trailing month / year tokens if attached at end (e.g. "test GPD Oct" -> "test gpd")
-  norm = norm
-    .replace(/\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december|2024|2025|2026)$/i, '')
-    .trim();
-  return norm;
-}
-
-export function normalizeTitleKey(title: string): string {
-  return normalizeTopicDirectiveKey(title);
-}
-
-function normalizeTargetGroup(val: string): TargetGroup {
-  const clean = cleanString(val).toUpperCase().replace(/[^A-Z]/g, '');
-  if (clean === 'ALSANDLEAD' || clean === 'ALSLEAD') return 'ALS_AND_LEAD';
-  if (clean === 'ALS') return 'ALS';
-  if (clean === 'LEAD') return 'Lead';
-  if (clean === 'CUTOM' || clean === 'CUSTOM') return 'CUSTOM';
-  return 'ALL';
-}
-
-function normalizeTopicType(val: string): TopicType {
-  const clean = cleanString(val).toLowerCase();
-  if (clean.includes('briefing')) return 'Briefing';
-  if (clean.includes('gpd') || clean.includes('gpi')) return 'GPD/GPI Read and Sign';
-  if (clean.includes('ahd') || clean.includes('ahi')) return 'AHD/AHI Read and Sign';
-  if (clean.includes('read') && clean.includes('sign')) return 'Document Read and Sign';
-  if (clean.includes('training')) return 'Training';
-  if (clean.includes('role play') || clean.includes('roleplay')) return 'Role Play';
-  if (clean.includes('teams')) return 'Teams Calls';
-  if (clean.includes('vitero')) return 'Vitero Sessions';
-  if (clean.includes('community')) return 'Ground Ops Community Calls';
-  if (clean.includes('wbt')) return 'WBT';
-  return 'Document Read and Sign';
-}
-
-export function resolveStaffUserId(
-  uNumber: string,
-  email?: string,
-  name?: string,
-  existingUsers?: User[]
-): string {
-  const cleanU = cleanString(uNumber).toUpperCase();
-  const rawDigits = cleanU.replace(/^U[-_\s]*/i, '').replace(/[^a-zA-Z0-9]/g, '');
-  const cleanEmail = cleanString(email).toLowerCase();
-  const cleanName = cleanString(name).toUpperCase().replace(/[^A-Z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
-  const namePartsSorted = cleanName ? cleanName.split(' ').sort().join(' ') : '';
-
-  const roster = existingUsers && existingUsers.length > 0 ? existingUsers : INITIAL_STAFF_ROSTER;
-
-  if (roster && roster.length > 0) {
-    const matched = roster.find(u => {
-      // 1. Direct U-Number match (exact or stripped of leading U / hyphens)
-      if (cleanU && u.uNumber) {
-        const uNumClean = u.uNumber.trim().toUpperCase();
-        const uNumDigits = uNumClean.replace(/^U[-_\s]*/i, '').replace(/[^a-zA-Z0-9]/g, '');
-        if (uNumClean === cleanU) return true;
-        if (rawDigits && uNumDigits && rawDigits === uNumDigits) return true;
-      }
-
-      // 2. ID matching (handling u-151236, u-u151236, etc.)
-      if (rawDigits && u.id) {
-        const uIdClean = u.id.toLowerCase().replace(/[^a-z0-9]/g, '').replace(/^u+/, '');
-        if (uIdClean && uIdClean === rawDigits.toLowerCase()) return true;
-      }
-
-      // 3. Email matching (exact or prefix before @)
-      if (cleanEmail && u.email) {
-        const uMail = u.email.trim().toLowerCase();
-        if (uMail === cleanEmail) return true;
-        if (cleanEmail.includes('@') && uMail.includes('@')) {
-          if (cleanEmail.split('@')[0] === uMail.split('@')[0]) return true;
-        }
-      }
-
-      // 4. Name matching (exact or reversed first/last name parts)
-      if (cleanName && u.name) {
-        const rosterNameClean = u.name.trim().toUpperCase().replace(/[^A-Z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
-        if (rosterNameClean === cleanName) return true;
-        const rosterPartsSorted = rosterNameClean.split(' ').sort().join(' ');
-        if (namePartsSorted && rosterPartsSorted && namePartsSorted === rosterPartsSorted) return true;
-      }
-
-      return false;
-    });
-
-    if (matched) return matched.id;
-  }
-
-  // Canonical format matching station roster schema (e.g. U151236 -> u-151236, SAKS -> u-saks, ADMIN -> u-admin)
-  if (rawDigits && /^\d+$/.test(rawDigits)) {
-    return `u-${rawDigits.toLowerCase()}`;
-  }
-  const cleanAlpha = cleanU.replace(/^U[-_\s]*/i, '').toLowerCase().replace(/[^a-z0-9]/g, '');
-  if (cleanAlpha) {
-    return `u-${cleanAlpha}`;
-  }
-  return `u-${cleanU.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
-}
-
-export function parseTopicParticipationBuffer(
-  buffer: ArrayBuffer | Uint8Array | string,
-  existingUsers?: User[]
-): TopicParticipationImportResult {
-  const workbook = typeof buffer === 'string'
-    ? XLSX.read(buffer, { type: 'binary' })
-    : XLSX.read(buffer, { type: 'array' });
-
-  if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
-    throw new Error('The uploaded file contains no worksheets.');
-  }
-
-  const rawRows: ParsedTopicParticipationRow[] = [];
-
-  // Parse all sheets in workbook to avoid missing multi-tab data
-  for (const sheetName of workbook.SheetNames) {
-    const worksheet = workbook.Sheets[sheetName];
-    if (!worksheet) continue;
-
-    const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-    if (!rawData || rawData.length === 0) continue;
-
-    // Find header row index in this sheet
-    let headerRowIndex = -1;
-    for (let i = 0; i < Math.min(10, rawData.length); i++) {
-      const row = rawData[i];
-      if (Array.isArray(row)) {
-        const rowText = row.map(cell => cleanString(cell).toUpperCase()).join(' ');
-        if (
-          (rowText.includes('TOPIC') && (rowText.includes('STAFF') || rowText.includes('NAME') || rowText.includes('NUMBER') || rowText.includes('STATUS'))) ||
-          (rowText.includes('TOPIC ID') && rowText.includes('UNUMBER')) ||
-          (rowText.includes('TITLE') && (rowText.includes('STATUS') || rowText.includes('CONFIRM') || rowText.includes('PARTICIPAT'))) ||
-          (rowText.includes('UNUMBER') && rowText.includes('NAME'))
-        ) {
-          headerRowIndex = i;
-          break;
-        }
-      }
-    }
-
-    if (headerRowIndex === -1) {
-      headerRowIndex = 0; // Default to first row
-    }
-
-    const rawHeaders = rawData[headerRowIndex]?.map(h => cleanString(h)) || [];
-    if (rawHeaders.length === 0) continue;
-
-    const colMap: Record<string, number> = {};
-
-    rawHeaders.forEach((h, idx) => {
-      const norm = normalizeHeader(h);
-
-      // Date / Timestamp column
-      if (
-        norm.includes('CONFIRMEDAT') ||
-        norm.includes('CONFIRMEDON') ||
-        norm.includes('CONFIRMATIONDATE') ||
-        norm.includes('CONFIRMEDDATE') ||
-        norm.includes('SIGNINGDATE') ||
-        norm.includes('SIGNEDAT') ||
-        norm.includes('TIMESTAMP') ||
-        norm.includes('DATE') ||
-        norm.includes('TIME')
-      ) {
-        colMap.confirmedAt = idx;
-      }
-      // Status / Participation column
-      else if (
-        norm.includes('STATUS') ||
-        norm.includes('PARTICIPATION') ||
-        norm.includes('PARTICIPATED') ||
-        norm.includes('ATTENDANCE') ||
-        norm.includes('ATTENDED') ||
-        norm.includes('CONFIRMATION') ||
-        norm.includes('CONFIRMED') ||
-        norm.includes('CONFIRM') ||
-        norm.includes('ACKNOWLEDGED') ||
-        norm.includes('ACKNOWLEDGEMENT') ||
-        norm.includes('COMPLETED') ||
-        norm.includes('COMPLETION') ||
-        norm.includes('STATE')
-      ) {
-        colMap.status = idx;
-      }
-      // Topic identifiers
-      else if (norm.includes('TOPICID') || norm === 'ID') colMap.topicId = idx;
-      else if (norm.includes('TOPICTITLE') || norm.includes('TITLE') || norm.includes('TOPICNAME') || norm === 'TOPIC') colMap.topicTitle = idx;
-      else if (norm.includes('TOPICTYPE') || norm.includes('TYPE')) colMap.topicType = idx;
-      else if (norm.includes('TARGET') || norm.includes('GROUP')) colMap.targetGroup = idx;
-      // Staff identifiers
-      else if (norm.includes('UNUMBER') || norm.includes('STAFFID') || norm === 'STAFFNUMBER' || norm === 'UID') colMap.uNumber = idx;
-      else if (norm.includes('STAFFNAME') || norm.includes('NAME') || norm === 'STAFF' || norm === 'EMPLOYEENAME') colMap.staffName = idx;
-      else if (norm.includes('EMAIL') || norm.includes('MAIL')) colMap.email = idx;
-      else if (norm === 'ALS') colMap.isAls = idx;
-      else if (norm === 'LEAD') colMap.isLead = idx;
-      // Signature
-      else if (norm.includes('SIGNATURE') || norm.includes('SIGNEDBY') || norm.includes('SIGN')) colMap.signature = idx;
-    });
-
-    for (let r = headerRowIndex + 1; r < rawData.length; r++) {
-      const row = rawData[r];
-      if (!row || row.length === 0) continue;
-
-      const topicTitle = cleanString(row[colMap.topicTitle]);
-      const uNumber = cleanString(row[colMap.uNumber]);
-      const staffName = cleanString(row[colMap.staffName]);
-
-      // Skip empty separator rows
-      if (!topicTitle && !uNumber && !staffName) continue;
-
-      const rawTopicId = cleanString(row[colMap.topicId]);
-      const topicId = rawTopicId || `top-${topicTitle.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 16)}`;
-      const topicType = normalizeTopicType(cleanString(row[colMap.topicType]));
-      const targetGroup = normalizeTargetGroup(cleanString(row[colMap.targetGroup]));
-      const email = cleanString(row[colMap.email]);
-
-      const alsRaw = cleanString(row[colMap.isAls]).toUpperCase();
-      const isAls = alsRaw === 'Y' || alsRaw === 'YES' || alsRaw === 'TRUE';
-
-      const leadRaw = cleanString(row[colMap.isLead]).toUpperCase();
-      const isLead = leadRaw === 'Y' || leadRaw === 'YES' || leadRaw === 'TRUE';
-
-      // Comprehensive Status Detection
-      const statusRaw = cleanString(row[colMap.status]).toUpperCase();
-      let confirmedAtRaw = cleanString(row[colMap.confirmedAt]);
-      const signatureRaw = cleanString(row[colMap.signature]);
-
-      // If status column contains a timestamp, swap with confirmedAt
-      if (!confirmedAtRaw && (statusRaw.includes('T') || statusRaw.includes(':') || (!isNaN(Number(statusRaw)) && Number(statusRaw) > 20000))) {
-        confirmedAtRaw = statusRaw;
-      }
-
-      // Check affirmative status keywords
-      const isAffirmative =
-        statusRaw.includes('CONFIRM') ||
-        statusRaw === 'YES' || statusRaw === 'Y' ||
-        statusRaw.includes('COMPLETE') ||
-        statusRaw.includes('ACKNOWLEDGE') ||
-        statusRaw.includes('SIGN') ||
-        statusRaw.includes('PARTICIPAT') ||
-        statusRaw.includes('ATTEND') ||
-        statusRaw === 'DONE' ||
-        statusRaw === 'TRUE' ||
-        statusRaw === '1' ||
-        statusRaw === 'OK' ||
-        statusRaw.includes('VERIF') ||
-        statusRaw.includes('APPROV') ||
-        statusRaw.includes('PRESENT') ||
-        statusRaw.includes('PASS') ||
-        statusRaw.includes('READ') ||
-        statusRaw.includes('COMPLIAN') ||
-        statusRaw.includes('SUBMIT') ||
-        statusRaw.includes('CHECK');
-
-      // Check explicit negative indicators
-      const isExplicitNegative =
-        statusRaw.includes('NOT PARTICIPAT') ||
-        statusRaw.includes('NOT ATTEND') ||
-        statusRaw.includes('NOT COMPLIAN') ||
-        statusRaw.includes('ABSENT') ||
-        statusRaw.includes('DID NOT') ||
-        statusRaw === 'NO' || statusRaw === 'N' ||
-        statusRaw === 'FALSE' || statusRaw === '0' ||
-        statusRaw.includes('UNCONFIRM') ||
-        statusRaw.includes('PENDING') ||
-        statusRaw.includes('MISSING');
-
-      // Check presence of valid signature
-      const hasValidSignature = Boolean(
-        signatureRaw &&
-        signatureRaw !== '-' &&
-        signatureRaw !== 'N/A' &&
-        signatureRaw !== 'PENDING' &&
-        signatureRaw !== 'NO' &&
-        signatureRaw !== 'NONE' &&
-        signatureRaw.trim().length >= 2
-      );
-
-      // Check presence of valid confirmation timestamp
-      const hasValidDate = Boolean(
-        confirmedAtRaw &&
-        confirmedAtRaw !== '-' &&
-        confirmedAtRaw !== 'N/A' &&
-        confirmedAtRaw !== 'PENDING' &&
-        (!isNaN(Number(confirmedAtRaw)) ? Number(confirmedAtRaw) > 20000 : !isNaN(Date.parse(confirmedAtRaw)))
-      );
-
-      let rowStatus: 'confirmed' | 'pending' | 'not_participated' | 'pending_late_approval' = 'pending';
-
-      // Both signature and date present -> unconditionally confirmed
-      if (hasValidSignature && hasValidDate) {
-        rowStatus = 'confirmed';
-      } else if (isAffirmative && !statusRaw.includes('NOT')) {
-        rowStatus = 'confirmed';
-      } else if ((hasValidSignature || hasValidDate) && !isExplicitNegative) {
-        rowStatus = 'confirmed';
-      } else if (statusRaw.includes('NOT PARTICIPAT') || statusRaw.includes('ABSENT')) {
-        rowStatus = 'not_participated';
-      } else if (statusRaw.includes('LATE') || statusRaw.includes('PENDING_LATE')) {
-        rowStatus = 'pending_late_approval';
-      }
-
-      let confirmedAt: string | undefined = undefined;
-      if (rowStatus === 'confirmed') {
-        if (hasValidDate) {
-          if (!isNaN(Number(confirmedAtRaw)) && Number(confirmedAtRaw) > 20000) {
-            try {
-              const dateObj = new Date(Math.round((Number(confirmedAtRaw) - 25569) * 86400 * 1000));
-              confirmedAt = dateObj.toISOString();
-            } catch {
-              confirmedAt = new Date().toISOString();
-            }
-          } else {
-            try {
-              confirmedAt = new Date(confirmedAtRaw).toISOString();
-            } catch {
-              confirmedAt = new Date().toISOString();
-            }
-          }
-        } else {
-          confirmedAt = new Date().toISOString();
-        }
-      }
-
-      rawRows.push({
-        topicId,
-        topicTitle: topicTitle || topicId,
-        topicType,
-        targetGroup,
-        uNumber: uNumber || 'U-TEMP',
-        staffName: staffName || uNumber || 'Staff Member',
-        email: email || '',
-        isAls,
-        isLead,
-        status: rowStatus,
-        confirmedAt,
-        signature: rowStatus === 'confirmed' ? (hasValidSignature ? signatureRaw : staffName) : undefined,
-      });
-    }
-  }
-
-  if (rawRows.length === 0) {
-    throw new Error('No valid topic participation rows found in file.');
-  }
-
-  return assembleDataFromRows(rawRows, existingUsers);
-}
-
-export function assembleDataFromRows(
-  rawRows: ParsedTopicParticipationRow[],
-  existingUsers?: User[]
-): TopicParticipationImportResult {
-  const topicsMap = new Map<string, Topic>();
-  const usersMap = new Map<string, User>();
-  const confirmationsMap = new Map<string, TopicConfirmation>();
-  const assignmentsMap = new Map<string, TopicAssignment>();
-
-  // Canonical topic key resolution: map normalized directive title to canonical topicId
-  const titleToCanonicalId = new Map<string, string>();
-  const titleToCanonicalTitle = new Map<string, string>();
-
-  const todayStr = new Date().toISOString().split('T')[0];
-  const nowIso = new Date().toISOString();
-
-  // First pass: resolve canonical topic IDs and canonical titles
-  rawRows.forEach(row => {
-    const directiveKey = normalizeTopicDirectiveKey(row.topicTitle);
-    if (!titleToCanonicalId.has(directiveKey)) {
-      const canonicalTopicId = row.topicId || `top-${directiveKey.slice(0, 20).replace(/\s+/g, '-')}`;
-      titleToCanonicalId.set(directiveKey, canonicalTopicId);
-      titleToCanonicalTitle.set(directiveKey, row.topicTitle);
-    }
-  });
-
-  // Second pass: Deduplicate participants per (canonicalTopicId, canonicalUserId)
-  // If ANY row for the staff member in this topic is 'confirmed', they are CONFIRMED!
-  const participantsMap = new Map<string, ParsedTopicParticipationRow>();
-
-  rawRows.forEach(row => {
-    const directiveKey = normalizeTopicDirectiveKey(row.topicTitle);
-    const canonicalTopicId = titleToCanonicalId.get(directiveKey) || row.topicId;
-    const canonicalTopicTitle = titleToCanonicalTitle.get(directiveKey) || row.topicTitle;
-    const userId = resolveStaffUserId(row.uNumber, row.email, row.staffName, existingUsers);
-
-    const partKey = `${canonicalTopicId}_${userId}`;
-    const existing = participantsMap.get(partKey);
-
-    if (!existing) {
-      participantsMap.set(partKey, {
-        ...row,
-        topicId: canonicalTopicId,
-        topicTitle: canonicalTopicTitle,
-      });
+  try {
+    let workbook: XLSX.WorkBook;
+    if (typeof fileContent === 'string') {
+      workbook = XLSX.read(fileContent, { type: 'string' });
     } else {
-      // Merge: if existing is not confirmed but current is confirmed, confirmed takes precedence
-      if (row.status === 'confirmed') {
-        participantsMap.set(partKey, {
-          ...existing,
-          ...row,
-          topicId: canonicalTopicId,
-          topicTitle: canonicalTopicTitle,
-          status: 'confirmed',
-          confirmedAt: row.confirmedAt || existing.confirmedAt || nowIso,
-          signature: row.signature || existing.signature || row.staffName,
+      workbook = XLSX.read(fileContent, { type: 'array' });
+    }
+
+    const firstSheetName = workbook.SheetNames[0];
+    if (!firstSheetName) {
+      result.errors.push('The uploaded file contains no readable sheets.');
+      return result;
+    }
+
+    const worksheet = workbook.Sheets[firstSheetName];
+    const rawRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+
+    if (rawRows.length < 2) {
+      result.errors.push('File must contain at least a header row and one data row.');
+      return result;
+    }
+
+    const headerRow: string[] = (rawRows[0] || []).map((h) => String(h || '').trim());
+    if (headerRow.length === 0) {
+      result.errors.push('Header row is empty.');
+      return result;
+    }
+
+    const workingUsersList = [...users];
+    const workingTopicsList = [...topics];
+
+    const matchedUsersMap = new Map<string, User>();
+    const matchedTopicsMap = new Map<string, Topic>();
+    const newUsersMap = new Map<string, User>();
+    const newTopicsMap = new Map<string, Topic>();
+    const recordsMap = new Map<string, TopicParticipationRecord>(); // key: `userId_topicId`
+
+    const normalizedHeaders = headerRow.map((h) => normalizeStr(h));
+
+    // Check if flat list with the specified 12-column format
+    const isFlatList =
+      normalizedHeaders.some((h) => h.includes('topic')) &&
+      normalizedHeaders.some((h) => h.includes('email') || h.includes('unumber') || h.includes('staff') || h.includes('name'));
+
+    if (isFlatList) {
+      // FLAT LIST FORMAT (e.g. TOPIC ID, TOPIC TITLE, TOPIC TYPE, TARGET GROUP, UNUMBER, STAFF NAME, EMAIL, ALS, LEAD, STATUS, CONFIRMED AT, SIGNATURE)
+      const topicIdColIdx = normalizedHeaders.findIndex((h) => h === 'topicid' || (h === 'id' && normalizedHeaders.includes('topictitle')));
+      const topicTitleColIdx = normalizedHeaders.findIndex((h) => h === 'topictitle' || (h.includes('topic') && !h.includes('type') && !h.includes('id')));
+      const topicTypeColIdx = normalizedHeaders.findIndex((h) => h === 'topictype' || h === 'type');
+      const targetGroupColIdx = normalizedHeaders.findIndex((h) => h === 'targetgroup' || h === 'group');
+      const uNumberColIdx = normalizedHeaders.findIndex((h) => h === 'unumber' || h === 'unum' || h === 'staffid');
+      const staffNameColIdx = normalizedHeaders.findIndex((h) => h === 'staffname' || h === 'name' || h === 'staff');
+      const emailColIdx = normalizedHeaders.findIndex((h) => h === 'email' || h === 'mail' || h === 'useremail');
+      const alsColIdx = normalizedHeaders.findIndex((h) => h === 'als');
+      const leadColIdx = normalizedHeaders.findIndex((h) => h === 'lead');
+      const statusColIdx = normalizedHeaders.findIndex((h) => h === 'status' || h === 'state');
+      const confirmedAtColIdx = normalizedHeaders.findIndex((h) => h === 'confirmedat' || h.includes('date') || h.includes('time'));
+      const signatureColIdx = normalizedHeaders.findIndex((h) => h === 'signature' || h === 'sig');
+
+      for (let r = 1; r < rawRows.length; r++) {
+        const row = rawRows[r];
+        if (!row || row.length === 0 || row.every((c) => !c)) continue;
+        result.totalRowsProcessed++;
+
+        const topicIdVal = topicIdColIdx >= 0 ? String(row[topicIdColIdx] || '').trim() : '';
+        const topicTitleVal = topicTitleColIdx >= 0 ? String(row[topicTitleColIdx] || '').trim() : '';
+        const topicTypeVal = topicTypeColIdx >= 0 ? String(row[topicTypeColIdx] || '').trim() : '';
+        const targetGroupVal = targetGroupColIdx >= 0 ? String(row[targetGroupColIdx] || '').trim() : '';
+        const uNumVal = uNumberColIdx >= 0 ? String(row[uNumberColIdx] || '').trim() : '';
+        const staffNameVal = staffNameColIdx >= 0 ? String(row[staffNameColIdx] || '').trim() : '';
+        const emailVal = emailColIdx >= 0 ? String(row[emailColIdx] || '').trim() : '';
+        const alsVal = alsColIdx >= 0 ? String(row[alsColIdx] || '').trim() : '';
+        const leadVal = leadColIdx >= 0 ? String(row[leadColIdx] || '').trim() : '';
+        const statusVal = statusColIdx >= 0 ? String(row[statusColIdx] || '').trim() : '';
+        const confirmedAtVal = confirmedAtColIdx >= 0 ? String(row[confirmedAtColIdx] || '').trim() : '';
+        const signatureVal = signatureColIdx >= 0 ? String(row[signatureColIdx] || '').trim() : '';
+
+        // Match user by Email first, then U-Number, then Staff Name
+        let matchedUser = workingUsersList.find((u) => {
+          if (emailVal && (u.email || '').toLowerCase() === emailVal.toLowerCase()) return true;
+          if (uNumVal && (u.uNumber || '').toLowerCase() === uNumVal.toLowerCase()) return true;
+          if (staffNameVal && (u.name || '').toLowerCase() === staffNameVal.toLowerCase()) return true;
+          return false;
         });
-      } else if (existing.status !== 'confirmed' && row.status === 'pending_late_approval') {
-        participantsMap.set(partKey, {
-          ...existing,
-          status: 'pending_late_approval',
+
+        if (!matchedUser) {
+          // If staff member does not exist in roster, create new staff record automatically so no row is dropped
+          const newUserId = `usr-${(uNumVal || emailVal || staffNameVal).toLowerCase().replace(/[^a-z0-9]/g, '') || Date.now()}`;
+          matchedUser = {
+            id: newUserId,
+            uNumber: uNumVal || `U${Math.floor(1000 + Math.random() * 9000)}`,
+            name: staffNameVal || emailVal.split('@')[0] || 'Staff Member',
+            email: emailVal || `${(uNumVal || 'staff').toLowerCase()}@airline.com`,
+            als: alsVal || 'ALS-1',
+            lead: leadVal || 'No',
+            role: 'user',
+            team: 'Ground Operations',
+            department: 'Operations',
+            isPasswordSet: false,
+          };
+          workingUsersList.push(matchedUser);
+          newUsersMap.set(matchedUser.id, matchedUser);
+        }
+
+        // Match topic by Topic ID first, then Topic Title
+        let matchedTopic = workingTopicsList.find((t) => {
+          if (topicIdVal && (t.id || '').toLowerCase() === topicIdVal.toLowerCase()) return true;
+          if (topicTitleVal && (t.title || '').toLowerCase() === topicTitleVal.toLowerCase()) return true;
+          if (topicTitleVal && normalizeStr(t.title || '') === normalizeStr(topicTitleVal)) return true;
+          if (topicIdVal && normalizeStr(t.id || '') === normalizeStr(topicIdVal)) return true;
+          if (topicTitleVal.length >= 4 && (t.title || '').toLowerCase().includes(topicTitleVal.toLowerCase())) return true;
+          return false;
+        });
+
+        if (!matchedTopic) {
+          // If topic does not exist, create new topic record automatically so no row is dropped
+          const newTopicId = topicIdVal || `top-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+          matchedTopic = {
+            id: newTopicId,
+            title: topicTitleVal || topicIdVal || 'Compliance Topic',
+            description: topicTitleVal || topicIdVal || 'Compliance Directive',
+            type: (topicTypeVal as any) || 'Document Read and Sign',
+            targetGroup: (targetGroupVal as any) || 'ALL',
+            category: 'Compliance Directives',
+            content: `Imported Directive: ${topicTitleVal || topicIdVal}`,
+            createdBy: 'CSV Import',
+            createdAt: new Date().toISOString(),
+            status: 'active',
+          };
+          workingTopicsList.push(matchedTopic);
+          newTopicsMap.set(matchedTopic.id, matchedTopic);
+        }
+
+        matchedUsersMap.set(matchedUser.id, matchedUser);
+        matchedTopicsMap.set(matchedTopic.id, matchedTopic);
+
+        const recKey = `${matchedUser.id}_${matchedTopic.id}`;
+        let recordDate = new Date().toISOString();
+        if (confirmedAtVal && !isNaN(Date.parse(confirmedAtVal))) {
+          recordDate = new Date(confirmedAtVal).toISOString();
+        }
+
+        const isWbt = matchedTopic.type === 'WBT' || matchedTopic.type === 'Web-Based Training' || topicTypeVal.toUpperCase() === 'WBT';
+
+        // Evaluate STATUS field: confirmed vs not confirmed
+        const statusClean = statusVal.trim().toUpperCase();
+        let recordStatus: 'confirmed' | 'pending_wbt_verification' | 'rejected' | 'missing' = 'confirmed';
+
+        if (
+          statusClean === 'CONFIRMED' ||
+          statusClean === 'CONFIRM' ||
+          statusClean === 'COMPLETED' ||
+          statusClean === 'PASSED' ||
+          statusClean === 'PASS' ||
+          statusClean === 'YES' ||
+          statusClean === 'Y' ||
+          statusClean === 'TRUE' ||
+          statusClean === '1' ||
+          statusClean === 'OK' ||
+          statusClean === 'SIGNED' ||
+          statusClean === 'DONE'
+        ) {
+          recordStatus = isWbt ? 'pending_wbt_verification' : 'confirmed';
+        } else if (
+          statusClean === 'PENDING_WBT_VERIFICATION' ||
+          statusClean === 'PENDING WBT' ||
+          statusClean === 'WBT PENDING'
+        ) {
+          recordStatus = 'pending_wbt_verification';
+        } else if (statusClean === 'REJECTED') {
+          recordStatus = 'rejected';
+        } else if (
+          statusClean === 'MISSING' ||
+          statusClean === 'PENDING' ||
+          statusClean === 'NOT CONFIRMED' ||
+          statusClean === 'UNCONFIRMED' ||
+          statusClean === 'NO' ||
+          statusClean === 'N' ||
+          statusClean === 'FALSE' ||
+          statusClean === '0' ||
+          statusClean === 'NOT STARTED' ||
+          statusClean === 'INCOMPLETE'
+        ) {
+          recordStatus = 'missing';
+        } else if (statusClean) {
+          recordStatus = isPositiveIndicator(statusVal)
+            ? isWbt
+              ? 'pending_wbt_verification'
+              : 'confirmed'
+            : 'missing';
+        } else {
+          // Default when status column is omitted or empty
+          recordStatus = isWbt ? 'pending_wbt_verification' : 'confirmed';
+        }
+
+        recordsMap.set(recKey, {
+          userId: matchedUser.id,
+          userName: matchedUser.name || staffNameVal || matchedUser.email,
+          userEmail: matchedUser.email || emailVal,
+          uNumber: matchedUser.uNumber || uNumVal,
+          topicId: matchedTopic.id,
+          topicTitle: matchedTopic.title || topicTitleVal,
+          topicType: topicTypeVal || matchedTopic.type,
+          targetGroup: targetGroupVal || matchedTopic.targetGroup,
+          als: alsVal || matchedUser.als,
+          lead: leadVal || matchedUser.lead,
+          confirmedAt: recordDate,
+          status: recordStatus,
+          signature: signatureVal || (recordStatus === 'confirmed' ? 'Electronically Verified' : ''),
+          notes: signatureVal ? `Signature: ${signatureVal}` : statusVal ? `Status: ${statusVal}` : 'Imported via Flat CSV',
+        });
+      }
+    } else {
+      // MATRIX FORMAT (Headers = Topics, Rows = Staff)
+      let staffIdentifierColIdx = -1;
+      let nameColIdx = -1;
+      let emailColIdx = -1;
+      const metadataColIndices = new Set<number>();
+
+      headerRow.forEach((h, idx) => {
+        const norm = normalizeStr(h);
+        if (norm.includes('email') || norm === 'mail') {
+          emailColIdx = idx;
+          metadataColIndices.add(idx);
+        } else if (norm.includes('name') || norm.includes('staff') || norm.includes('user') || norm === 'names') {
+          nameColIdx = idx;
+          metadataColIndices.add(idx);
+        } else if (norm.includes('unumber') || norm.includes('unum') || norm.includes('id') || norm.includes('staffid') || norm.includes('empid')) {
+          staffIdentifierColIdx = idx;
+          metadataColIndices.add(idx);
+        } else if (
+          norm === 'als' ||
+          norm === 'lead' ||
+          norm === 'team' ||
+          norm === 'department' ||
+          norm === 'role' ||
+          norm === 'status' ||
+          norm === 'date' ||
+          norm === 'notes' ||
+          norm === 'remarks' ||
+          norm === 'actions' ||
+          norm === '#' ||
+          norm === 'sno' ||
+          norm === 'no'
+        ) {
+          metadataColIndices.add(idx);
+        }
+      });
+
+      if (staffIdentifierColIdx === -1 && nameColIdx === -1 && emailColIdx === -1) {
+        staffIdentifierColIdx = 0;
+        metadataColIndices.add(0);
+      }
+
+      const colToTopicMap = new Map<number, Topic>();
+      headerRow.forEach((colHeader, colIdx) => {
+        if (metadataColIndices.has(colIdx)) return;
+        if (!colHeader.trim()) return;
+
+        const normHeader = normalizeStr(colHeader);
+        const matchedTopic = topics.find((t) => {
+          const normTitle = normalizeStr(t.title || '');
+          const normId = normalizeStr(t.id || '');
+          return (
+            (t.id || '').toLowerCase() === colHeader.trim().toLowerCase() ||
+            (t.title || '').toLowerCase() === colHeader.trim().toLowerCase() ||
+            normTitle === normHeader ||
+            normId === normHeader ||
+            (normHeader.length >= 4 && normTitle.includes(normHeader)) ||
+            (normHeader.length >= 4 && normHeader.includes(normTitle))
+          );
+        });
+
+        if (matchedTopic) {
+          colToTopicMap.set(colIdx, matchedTopic);
+          matchedTopicsMap.set(matchedTopic.id, matchedTopic);
+        } else {
+          if (!result.unmatchedTopics.includes(colHeader)) {
+            result.unmatchedTopics.push(colHeader);
+          }
+        }
+      });
+
+      for (let r = 1; r < rawRows.length; r++) {
+        const row = rawRows[r];
+        if (!row || row.length === 0 || row.every((c) => !c)) continue;
+        result.totalRowsProcessed++;
+
+        const emailVal = emailColIdx >= 0 ? String(row[emailColIdx] || '').trim() : '';
+        const nameVal = nameColIdx >= 0 ? String(row[nameColIdx] || '').trim() : '';
+        const idVal = String(row[staffIdentifierColIdx] || '').trim();
+
+        const matchedUser = users.find(
+          (u) =>
+            (emailVal && (u.email || '').toLowerCase() === emailVal.toLowerCase()) ||
+            (idVal && (u.uNumber || '').toLowerCase() === idVal.toLowerCase()) ||
+            (idVal && (u.email || '').toLowerCase() === idVal.toLowerCase()) ||
+            (nameVal && (u.name || '').toLowerCase() === nameVal.toLowerCase()) ||
+            (idVal && (u.name || '').toLowerCase() === idVal.toLowerCase())
+        );
+
+        if (!matchedUser) {
+          const id = emailVal || nameVal || idVal || `Row ${r + 1}`;
+          if (!result.unmatchedStaff.includes(id)) {
+            result.unmatchedStaff.push(id);
+          }
+          continue;
+        }
+
+        matchedUsersMap.set(matchedUser.id, matchedUser);
+
+        colToTopicMap.forEach((matchedTopic, colIdx) => {
+          const cellVal = row[colIdx];
+          if (isPositiveIndicator(cellVal)) {
+            const recKey = `${matchedUser.id}_${matchedTopic.id}`;
+            let dateStr = new Date().toISOString();
+
+            if (typeof cellVal === 'string' && !isNaN(Date.parse(cellVal))) {
+              dateStr = new Date(cellVal).toISOString();
+            }
+
+            const isWbt = matchedTopic.type === 'WBT' || matchedTopic.type === 'Web-Based Training';
+
+            recordsMap.set(recKey, {
+              userId: matchedUser.id,
+              userName: matchedUser.name || matchedUser.email,
+              userEmail: matchedUser.email,
+              uNumber: matchedUser.uNumber,
+              topicId: matchedTopic.id,
+              topicTitle: matchedTopic.title,
+              topicType: matchedTopic.type,
+              targetGroup: matchedTopic.targetGroup,
+              confirmedAt: dateStr,
+              status: isWbt ? 'pending_wbt_verification' : 'confirmed',
+              signature: 'Electronically Verified',
+              notes: `Imported from Excel/CSV Matrix column: "${headerRow[colIdx]}"`,
+            });
+          }
         });
       }
     }
-  });
 
-  // Canonical deduplicated rows across all topics
-  const rows: ParsedTopicParticipationRow[] = Array.from(participantsMap.values());
+    result.records = Array.from(recordsMap.values());
+    result.newUsersToSave = Array.from(newUsersMap.values());
+    result.newTopicsToSave = Array.from(newTopicsMap.values());
+    result.matchedStaffCount = matchedUsersMap.size;
+    result.matchedTopicsCount = matchedTopicsMap.size;
+  } catch (err: any) {
+    result.errors.push(`Failed to parse file: ${err?.message || String(err)}`);
+  }
 
-  rows.forEach(row => {
-    const userId = resolveStaffUserId(row.uNumber, row.email, row.staffName, existingUsers);
-
-    // 1. Process User
-    if (!usersMap.has(userId)) {
-      usersMap.set(userId, {
-        id: userId,
-        uNumber: row.uNumber,
-        name: row.staffName,
-        email: row.email,
-        isAls: row.isAls,
-        isLead: row.isLead,
-        isAdmin: row.uNumber.toUpperCase() === 'ADMIN' || row.email.toLowerCase() === 'admin@compliance.system',
-        department: 'Station Operations',
-        title: row.isLead ? 'Station Lead' : row.isAls ? 'ALS Ground Staff' : 'Ground Operations Staff',
-      });
-    }
-
-    // 2. Process Topic (strictly one canonical topic per directive)
-    if (!topicsMap.has(row.topicId)) {
-      topicsMap.set(row.topicId, {
-        id: row.topicId,
-        title: row.topicTitle,
-        type: row.topicType,
-        targetGroup: row.targetGroup,
-        assignedUserIds: [],
-        content: `Operational directive and requirements for "${row.topicTitle}". Please review all attached guidelines and complete acknowledgment before station duty.`,
-        effectiveDate: todayStr,
-        dueDate: '2026-10-31',
-        createdAt: nowIso,
-        createdBy: 'Station Administrator',
-        version: 'v1.0',
-        publishedDate: todayStr,
-      });
-    }
-
-    const topic = topicsMap.get(row.topicId)!;
-
-    // Harmonize target group: ALL takes precedence, then ALS_AND_LEAD
-    if (row.targetGroup === 'ALL' || topic.targetGroup === 'ALL') {
-      topic.targetGroup = 'ALL';
-    } else if (
-      row.targetGroup === 'ALS_AND_LEAD' || topic.targetGroup === 'ALS_AND_LEAD' ||
-      (topic.targetGroup === 'ALS' && row.targetGroup === 'Lead') ||
-      (topic.targetGroup === 'Lead' && row.targetGroup === 'ALS')
-    ) {
-      topic.targetGroup = 'ALS_AND_LEAD';
-    }
-
-    if (!topic.assignedUserIds) topic.assignedUserIds = [];
-    if (!topic.assignedUserIds.includes(userId)) {
-      topic.assignedUserIds.push(userId);
-    }
-
-    // 3. Process Assignment
-    const assignmentId = `${row.topicId}_${userId}`;
-    assignmentsMap.set(assignmentId, {
-      id: assignmentId,
-      topicId: row.topicId,
-      topicTitle: row.topicTitle,
-      topicType: row.topicType,
-      userId,
-      userName: row.staffName,
-      userEmail: row.email,
-      uNumber: row.uNumber,
-      targetGroup: topic.targetGroup,
-      isIndividuallySelected: topic.targetGroup === 'CUSTOM',
-      assignedAt: nowIso,
-      dueDate: '2026-10-31',
-      status: row.status === 'confirmed' ? 'confirmed' : row.status === 'not_participated' ? 'not_participated' : 'pending',
-      isAls: row.isAls,
-      isLead: row.isLead,
-      staffQualification: row.isAls && row.isLead ? 'ALS & Lead' : row.isAls ? 'ALS' : row.isLead ? 'Lead' : 'Standard',
-      confirmedAt: row.confirmedAt,
-    });
-
-    // 4. Process Confirmation if Confirmed
-    if (row.status === 'confirmed') {
-      const confId = `conf-${row.topicId}-${userId}`;
-      confirmationsMap.set(confId, {
-        id: confId,
-        topicId: row.topicId,
-        documentId: row.topicId,
-        documentTitle: row.topicTitle,
-        documentVersion: 'v1.0',
-        userId,
-        uNumber: row.uNumber,
-        userName: row.staffName,
-        userEmail: row.email,
-        confirmedAt: row.confirmedAt || nowIso,
-        status: 'confirmed',
-        signatureText: row.signature || row.staffName,
-        ipAddress: '10.240.12.88',
-        adminReviewNote: 'Imported from verified Topic Participation Master Ledger',
-      });
-    }
-  });
-
-  const topics = Array.from(topicsMap.values());
-  const users = Array.from(usersMap.values());
-  const confirmations = Array.from(confirmationsMap.values());
-  const assignments = Array.from(assignmentsMap.values());
-
-  const totalConfirmed = rows.filter(r => r.status === 'confirmed').length;
-  const totalPending = rows.length - totalConfirmed;
-
-  // Build per-topic participation summaries (1 row per topic with all its participants)
-  const topicSummaries: TopicParticipationSummary[] = topics.map(topic => {
-    const topicRows = rows.filter(r => r.topicId === topic.id);
-    const participatedRows = topicRows.filter(r => r.status === 'confirmed');
-    const missingRows = topicRows.filter(r => r.status !== 'confirmed');
-    const completionRate = topicRows.length > 0
-      ? Math.round((participatedRows.length / topicRows.length) * 100)
-      : 0;
-
-    return {
-      topic,
-      rows: topicRows,
-      participatedRows,
-      missingRows,
-      totalAssigned: topicRows.length,
-      totalConfirmed: participatedRows.length,
-      totalPending: missingRows.length,
-      completionRate,
-    };
-  });
-
-  return {
-    rows,
-    topics,
-    topicSummaries,
-    users,
-    confirmations,
-    assignments,
-    stats: {
-      totalRows: rows.length,
-      totalTopics: topics.length,
-      totalStaff: users.length,
-      totalConfirmed,
-      totalPending,
-    },
-  };
+  return result;
 }
 
-// Pre-packaged dataset extracted from the provided sheet images
-import { RAW_PROVIDED_SHEET_ROWS } from './provided-sheet-data';
+/**
+ * Generates sample CSV string templates for downloadable reference matching requested headers
+ */
+export function generateSampleParticipationCSV(type: 'matrix' | 'flat', users: User[], topics: Topic[]): string {
+  const sampleUsers = users.slice(0, 3);
+  const sampleTopics = topics.slice(0, 3);
 
-export function getProvidedSheetData(existingUsers?: User[]): TopicParticipationImportResult {
-  return assembleDataFromRows(RAW_PROVIDED_SHEET_ROWS, existingUsers);
+  if (type === 'matrix') {
+    const headers = ['UNUMBER', 'STAFF NAME', 'EMAIL', 'ALS', 'LEAD', ...sampleTopics.map((t) => t.title.toUpperCase())];
+    const rows = sampleUsers.map((u, i) => [
+      u.uNumber || `U100${i}`,
+      u.name || `Staff Member ${i + 1}`,
+      u.email || `staff${i + 1}@example.com`,
+      u.als || 'ALS 1',
+      u.lead || 'Team Alpha',
+      i === 0 ? 'CONFIRMED' : 'YES',
+      i === 1 ? 'CONFIRMED' : 'NO',
+      'YES',
+    ]);
+
+    return [headers.join('\t'), ...rows.map((r) => r.join('\t'))].join('\n');
+  } else {
+    // Exact requested headers: TOPIC ID | TOPIC TITLE | TOPIC TYPE | TARGET GROUP | UNUMBER | STAFF NAME | EMAIL | ALS | LEAD | STATUS | CONFIRMED AT | SIGNATURE
+    const headers = [
+      'TOPIC ID',
+      'TOPIC TITLE',
+      'TOPIC TYPE',
+      'TARGET GROUP',
+      'UNUMBER',
+      'STAFF NAME',
+      'EMAIL',
+      'ALS',
+      'LEAD',
+      'STATUS',
+      'CONFIRMED AT',
+      'SIGNATURE',
+    ];
+
+    const rows = sampleUsers.flatMap((u, uIdx) =>
+      sampleTopics.map((t, tIdx) => [
+        t.id,
+        t.title,
+        t.type || 'Read & Sign',
+        t.targetGroup || 'All Staff',
+        u.uNumber || `U100${uIdx}`,
+        u.name || `Staff ${uIdx + 1}`,
+        u.email || `user${uIdx + 1}@example.com`,
+        u.als || 'ALS 1',
+        u.lead || 'Team Lead',
+        tIdx % 2 === 0 ? 'CONFIRMED' : 'PENDING',
+        '2026-10-14 10:00:00',
+        'Digitally Signed',
+      ])
+    );
+
+    return [headers.join('\t'), ...rows.map((r) => r.join('\t'))].join('\n');
+  }
 }
+

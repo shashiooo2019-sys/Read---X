@@ -1,900 +1,444 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import { TopicComplianceStats, isConfirmationForStaff } from '@/lib/compliance-store';
-import { exportSingleTopicReport } from '@/lib/export-utils';
-import { TopicCloseOption, WBT_TEAMS_UPLOAD_URL } from '@/lib/types';
+import React, { useState } from 'react';
+import { Topic, User, TopicConfirmation, TopicCloseOption } from '@/lib/types';
+import { TopicComplianceStats } from '@/lib/compliance-store';
 import {
   X,
-  Download,
-  Search,
   CheckCircle2,
   Clock,
-  AlertTriangle,
-  ExternalLink,
-  Mail,
-  Send,
-  UserCheck,
-  UserX,
-  Maximize2,
-  Minimize2,
-  RotateCcw,
-  Trash2
+  Users,
+  Search,
+  Lock,
+  Unlock,
+  Trash2,
 } from 'lucide-react';
 
 interface TopicBreakdownModalProps {
-  stats: TopicComplianceStats;
-  onUpdateConfirmation?: (confirmationId: string, newStatus: 'confirmed' | 'rejected', reviewNote?: string) => void;
+  isOpen?: boolean;
+  onClose: () => void;
+  topic?: Topic;
+  stats?: TopicComplianceStats;
+  users?: User[];
+  confirmations?: TopicConfirmation[];
+  onUpdateConfirmation?: (confirmationId: string, newStatus: 'confirmed' | 'rejected', note?: string) => void;
   onCloseTopicForAcknowledgement?: (topicId: string, option: TopicCloseOption) => void;
   onReopenTopicForAcknowledgement?: (topicId: string) => void;
-  onDeleteTopic?: (topicId: string) => void | Promise<void>;
-  onClose: () => void;
+  onDeleteTopic?: (topicId: string) => void;
+  currentUser?: User;
 }
 
 export function TopicBreakdownModal({
+  isOpen = true,
+  onClose,
+  topic,
   stats,
-  onUpdateConfirmation,
+  users = [],
+  confirmations = [],
   onCloseTopicForAcknowledgement,
   onReopenTopicForAcknowledgement,
   onDeleteTopic,
-  onClose,
 }: TopicBreakdownModalProps) {
-  const [activeTab, setActiveTab] = useState<'all' | 'confirmed' | 'missing' | 'pending_late' | 'not_participated'>('all');
-  const [searchStaff, setSearchStaff] = useState('');
-  const [reminderSentStaff, setReminderSentStaff] = useState<Record<string, boolean>>({});
-  const [isFullscreen, setIsFullscreen] = useState(true);
-  const [showCloseDialog, setShowCloseDialog] = useState(false);
-  const [closeOption, setCloseOption] = useState<TopicCloseOption>('mark_participated');
-  const [showReopenDialog, setShowReopenDialog] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'confirmed' | 'missing'>('all');
+  const [nameFilter, setNameFilter] = useState('');
 
-  const todayStr = new Date().toISOString().split('T')[0];
-  const isPastDeadline = Boolean(stats.topic.dueDate && stats.topic.dueDate < todayStr);
+  if (!isOpen || !topic) return null;
 
-  const canCloseForAck = !stats.topic.isClosed;
-
-  const {
-    topic,
-    confirmedStaff,
-    missingStaff,
-    pendingLateStaff,
-    notParticipatedStaff = [],
-    totalEligible,
-    totalConfirmed,
-    totalMissing,
-    totalPendingLate,
-    totalNotParticipated = 0,
-    completionRate,
-  } = stats;
-
-  const handleSendReminder = (userId: string) => {
-    setReminderSentStaff(prev => ({ ...prev, [userId]: true }));
-  };
-
-  const handleSendAllReminders = () => {
-    const updated: Record<string, boolean> = {};
-    missingStaff.forEach(u => {
-      updated[u.id] = true;
-    });
-    setReminderSentStaff(updated);
-  };
-
-  // Unified list of all participants for this topic
-  const allParticipants = useMemo(() => {
-    return stats.eligibleStaff.map(u => {
-      const confItem = confirmedStaff.find(c => isConfirmationForStaff(c.confirmation, u) || c.user.id === u.id);
-      const pendingLateItem = pendingLateStaff.find(p => isConfirmationForStaff(p.confirmation, u) || p.user.id === u.id);
-      const notPartItem = notParticipatedStaff.find(np => (np.confirmation && isConfirmationForStaff(np.confirmation, u)) || np.user.id === u.id);
-
-      let status: 'confirmed' | 'missing' | 'pending_late' | 'not_participated' = 'missing';
-      if (confItem) status = 'confirmed';
-      else if (pendingLateItem) status = 'pending_late';
-      else if (notPartItem) status = 'not_participated';
-
-      return {
-        user: u,
-        status,
-        confirmation: confItem?.confirmation || pendingLateItem?.confirmation || notPartItem?.confirmation,
-      };
-    });
-  }, [stats.eligibleStaff, confirmedStaff, pendingLateStaff, notParticipatedStaff]);
-
-  const filteredAllParticipants = allParticipants.filter(item => {
-    const q = searchStaff.toLowerCase();
-    return (
-      item.user.name.toLowerCase().includes(q) ||
-      item.user.email.toLowerCase().includes(q) ||
-      item.user.uNumber.toLowerCase().includes(q)
+  // Process user status items
+  const userStatuses = users.map((user) => {
+    const conf = confirmations.find(
+      (c) => c.userId === user.id && c.topicId === topic.id
     );
+    const isConfirmed = conf?.status === 'confirmed';
+    return { user, conf, isConfirmed };
   });
 
-  // Filter lists based on searchStaff query
-  const filteredMissing = missingStaff.filter(u => {
-    const q = searchStaff.toLowerCase();
-    return (
-      u.name.toLowerCase().includes(q) ||
-      u.email.toLowerCase().includes(q) ||
-      u.uNumber.toLowerCase().includes(q)
-    );
+  const totalCount = userStatuses.length;
+  const confirmedCount = userStatuses.filter((item) => item.isConfirmed).length;
+  const missingCount = totalCount - confirmedCount;
+  const percentage = totalCount > 0 ? Math.round((confirmedCount / totalCount) * 100) : 0;
+
+  // Filter users by status and name
+  const filteredItems = userStatuses.filter(({ user, isConfirmed }) => {
+    // 1. Filter for confirmed vs missing
+    if (statusFilter === 'confirmed' && !isConfirmed) return false;
+    if (statusFilter === 'missing' && isConfirmed) return false;
+
+    // 2. Filter for names (or email / U-number / ALS station)
+    if (nameFilter.trim() !== '') {
+      const term = nameFilter.toLowerCase().trim();
+      const nameStr = (user.name || '').toLowerCase();
+      const emailStr = (user.email || '').toLowerCase();
+      const uNumStr = (user.uNumber || '').toLowerCase();
+      const alsStr = (user.als || '').toLowerCase();
+
+      const matches =
+        nameStr.includes(term) ||
+        emailStr.includes(term) ||
+        uNumStr.includes(term) ||
+        alsStr.includes(term);
+
+      if (!matches) return false;
+    }
+
+    return true;
   });
 
-  const filteredConfirmed = confirmedStaff.filter(item => {
-    const q = searchStaff.toLowerCase();
-    return (
-      item.user.name.toLowerCase().includes(q) ||
-      item.user.email.toLowerCase().includes(q) ||
-      item.user.uNumber.toLowerCase().includes(q)
-    );
-  });
-
-  const filteredPendingLate = pendingLateStaff.filter(item => {
-    const q = searchStaff.toLowerCase();
-    return (
-      item.user.name.toLowerCase().includes(q) ||
-      item.user.email.toLowerCase().includes(q) ||
-      item.user.uNumber.toLowerCase().includes(q) ||
-      (item.confirmation.lateReason && item.confirmation.lateReason.toLowerCase().includes(q))
-    );
-  });
-
-  const filteredNotParticipated = notParticipatedStaff.filter(item => {
-    const q = searchStaff.toLowerCase();
-    return (
-      item.user.name.toLowerCase().includes(q) ||
-      item.user.email.toLowerCase().includes(q) ||
-      item.user.uNumber.toLowerCase().includes(q)
-    );
-  });
+  const isFiltered = statusFilter !== 'all' || nameFilter.trim() !== '';
 
   return (
-    <div className={`fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center ${isFullscreen ? 'p-0' : 'p-2 sm:p-4'} overflow-hidden`}>
-      <div className={`bg-white shadow-2xl w-full border border-slate-200 overflow-hidden flex flex-col transition-all duration-200 ${
-        isFullscreen
-          ? 'h-screen w-screen max-w-none max-h-none rounded-none my-0'
-          : 'rounded-xl max-w-4xl my-2 sm:my-8 h-[92vh] max-h-[92vh]'
-      }`}>
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+      <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-100">
         {/* Header */}
-        <div className="px-4 sm:px-6 py-3 sm:py-4 bg-slate-50 border-b border-slate-200 flex items-start justify-between">
-          <div className="pr-4">
-            <div className="flex items-center gap-2 text-xs text-slate-500 mb-1 flex-wrap">
-              <span className="font-semibold text-slate-700">{topic.type}</span>
-              <span aria-hidden="true">·</span>
-              <span>Target: <strong className="text-slate-800">{topic.targetGroup}</strong></span>
-              <span aria-hidden="true">·</span>
-              <span>Due: <span className="tabular-nums font-mono">{topic.dueDate}</span></span>
-              {topic.isClosed && (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span className={`font-bold px-2 py-0.5 rounded-full text-[10px] ${
-                    topic.closedOption === 'mark_not_participated'
-                      ? 'text-amber-800 bg-amber-100'
-                      : 'text-emerald-800 bg-emerald-100'
-                  }`}>
-                    {topic.closedOption === 'mark_not_participated' ? 'Closed (Partial Pax)' : '✓ Closed for Acknowledgement'}
-                  </span>
-                </>
-              )}
+        <div className="bg-slate-900 text-white px-6 py-5 flex items-start justify-between shrink-0">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-500/20 text-blue-300 border border-blue-400/30">
+                {topic.type}
+              </span>
+              <span className="text-xs text-slate-400">Target: {topic.targetGroup}</span>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-base sm:text-lg font-bold text-slate-900 leading-snug">{topic.title}</h2>
-              {topic.isClosed ? (
-                <button
-                  type="button"
-                  onClick={() => setShowReopenDialog(true)}
-                  className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold shadow-xs transition flex items-center gap-1.5 cursor-pointer"
-                  title="Reopen topic for staff acknowledgement"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Reopen Topic for Acknowledgement</span>
-                </button>
-              ) : canCloseForAck ? (
-                <button
-                  type="button"
-                  onClick={() => setShowCloseDialog(true)}
-                  className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs transition flex items-center gap-1.5 cursor-pointer"
-                  title="Close topic for acknowledgement: choose participation option"
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Close Topic for Acknowledgement</span>
-                </button>
-              ) : null}
-              {onDeleteTopic && (
-                <button
-                  type="button"
-                  onClick={() => setShowDeleteConfirm(true)}
-                  className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-semibold shadow-xs transition flex items-center gap-1.5 cursor-pointer"
-                  title="Delete compliance topic & directive permanently"
-                >
-                  <Trash2 className="w-3.5 h-3.5 text-red-600" />
-                  <span>Delete Topic</span>
-                </button>
-              )}
-              {topic.category === 'WBT' && (
-                <a
-                  href={WBT_TEAMS_UPLOAD_URL}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="px-3 py-1 bg-[#4f52b2] hover:bg-[#44469b] text-white rounded-lg text-xs font-semibold shadow-xs transition flex items-center gap-1.5 cursor-pointer"
-                  title="Open Microsoft Teams & SharePoint Certificate Upload folder"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span>Teams / SharePoint Certificates</span>
-                </a>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setIsFullscreen(prev => !prev)}
-              className="text-slate-400 hover:text-slate-700 p-1.5 rounded-md hover:bg-slate-200/60 transition cursor-pointer"
-              title={isFullscreen ? "Minimize to original size" : "Show full screen"}
-            >
-              {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="text-slate-400 hover:text-slate-700 p-1.5 rounded-md hover:bg-slate-200/60 transition cursor-pointer"
-              title="Close modal"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Executive Interactive Stats & Export bar */}
-        <div className="p-3 sm:p-4 bg-white border-b border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 text-xs">
-          <button
-            type="button"
-            onClick={() => setActiveTab('all')}
-            className={`text-left p-2.5 rounded-xl transition cursor-pointer border shadow-xs ${
-              activeTab === 'all'
-                ? 'bg-blue-50/80 border-[#0078D4] ring-1 ring-[#0078D4]'
-                : 'bg-slate-50/80 border-slate-200 hover:border-slate-300'
-            }`}
-            title="Click to view all assigned personnel for this topic"
-          >
-            <span className="text-slate-500 block text-[11px]">All Assigned Personnel</span>
-            <span className="text-base sm:text-lg font-bold text-slate-900 tabular-nums">{totalEligible}</span>
-            <span className="text-[10px] text-[#0078D4] block mt-0.5">View all participants ↳</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('confirmed')}
-            className={`text-left p-2.5 rounded-xl transition cursor-pointer border shadow-xs ${
-              activeTab === 'confirmed'
-                ? 'bg-emerald-50/80 border-emerald-300 ring-1 ring-emerald-300'
-                : 'bg-slate-50/80 border-slate-200 hover:border-emerald-200'
-            }`}
-            title="Click to view all confirmed and signed personnel"
-          >
-            <span className="text-emerald-700 block font-medium text-[11px]">Confirmed / Signed</span>
-            <span className="text-base sm:text-lg font-bold text-emerald-800 tabular-nums">{totalConfirmed}</span>
-            <span className="text-[10px] text-emerald-700 block mt-0.5">View signed ↳</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('missing')}
-            className={`text-left p-2.5 rounded-xl transition cursor-pointer border shadow-xs ${
-              activeTab === 'missing'
-                ? 'bg-amber-50/80 border-amber-300 ring-1 ring-amber-300'
-                : 'bg-slate-50/80 border-slate-200 hover:border-amber-200'
-            }`}
-            title="Click to view all missing / pending staff awaiting signature"
-          >
-            <span className="text-amber-700 block font-medium text-[11px]">Missing / Pending</span>
-            <span className="text-base sm:text-lg font-bold text-amber-800 tabular-nums">{totalMissing}</span>
-            <span className="text-[10px] text-amber-700 block mt-0.5">View missing ↳</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('pending_late')}
-            className={`text-left p-2.5 rounded-xl transition cursor-pointer border shadow-xs ${
-              activeTab === 'pending_late'
-                ? 'bg-blue-50/80 border-blue-300 ring-1 ring-blue-300'
-                : 'bg-slate-50/80 border-slate-200 hover:border-blue-200'
-            }`}
-            title="Click to view pending late review submissions"
-          >
-            <span className="text-blue-700 block font-medium text-[11px]">Late Review</span>
-            <span className="text-base sm:text-lg font-bold text-blue-800 tabular-nums">{totalPendingLate}</span>
-            <span className="text-[10px] text-blue-700 block mt-0.5">View late review ↳</span>
-          </button>
-        </div>
-
-        {/* Streamlined Search Bar & Filter Pills */}
-        <div className="px-4 py-3 bg-white border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-lg">
-            <button
-              type="button"
-              onClick={() => setActiveTab('all')}
-              className={`px-3 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
-                activeTab === 'all'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              All Participants ({totalEligible})
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('confirmed')}
-              className={`px-3 py-1 rounded-md text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
-                activeTab === 'confirmed'
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'text-emerald-700 hover:text-emerald-900'
-              }`}
-            >
-              <CheckCircle2 className="w-3 h-3" />
-              <span>Participated ({totalConfirmed})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('missing')}
-              className={`px-3 py-1 rounded-md text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
-                activeTab === 'missing'
-                  ? 'bg-amber-600 text-white shadow-xs'
-                  : 'text-amber-700 hover:text-amber-900'
-              }`}
-            >
-              <Clock className="w-3 h-3" />
-              <span>Missing ({totalMissing})</span>
-            </button>
-            {totalPendingLate > 0 && (
-              <button
-                type="button"
-                onClick={() => setActiveTab('pending_late')}
-                className={`px-3 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
-                  activeTab === 'pending_late'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-blue-700 hover:text-blue-900'
-                }`}
-              >
-                Late Review ({totalPendingLate})
-              </button>
+            <h2 className="text-xl font-bold">{topic.title}</h2>
+            {topic.dueDate && (
+              <p className="text-xs text-slate-400 mt-1">Due Date: {topic.dueDate}</p>
             )}
           </div>
-
-          {/* Search & Actions */}
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <div className="relative w-48 sm:w-60">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
-              <input
-                type="text"
-                placeholder="Search staff in this topic..."
-                value={searchStaff}
-                onChange={e => setSearchStaff(e.target.value)}
-                className="w-full pl-8 pr-2.5 py-1 text-xs border border-slate-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-[#0078D4]"
-              />
-            </div>
-
-            {activeTab === 'missing' && totalMissing > 0 && (
-              <button
-                onClick={handleSendAllReminders}
-                className="px-3 py-1.5 font-medium text-[#0078D4] bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded transition flex items-center gap-1 whitespace-nowrap cursor-pointer"
-              >
-                <Send className="w-3 h-3" />
-                <span>Nudge All ({totalMissing})</span>
-              </button>
-            )}
-
-            <button
-              onClick={() => exportSingleTopicReport(stats)}
-              className="px-3 py-1.5 font-semibold text-white bg-[#0078D4] hover:bg-[#106EBE] rounded transition flex items-center gap-1 whitespace-nowrap shadow-xs cursor-pointer"
-              title="Download full CSV report of confirmed and missing staff"
-            >
-              <Download className="w-3 h-3" />
-              <span>Export CSV</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Staff Table */}
-        <div className="p-0 overflow-y-auto flex-1">
-          {activeTab === 'all' && (
-            <table className="w-full text-left text-xs border-collapse">
-              <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 sticky top-0 z-10">
-                <tr>
-                  <th className="py-2.5 px-4 font-semibold">Staff Member</th>
-                  <th className="py-2.5 px-4 font-semibold">ID / Email</th>
-                  <th className="py-2.5 px-4 font-semibold">Qualifications</th>
-                  <th className="py-2.5 px-4 font-semibold">Participation Status</th>
-                  <th className="py-2.5 px-4 font-semibold">Confirmed At &amp; Signature</th>
-                  <th className="py-2.5 px-4 font-semibold text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredAllParticipants.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-8 text-center text-slate-500">
-                      No participants match the search query.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredAllParticipants.map(item => {
-                    const u = item.user;
-                    const isNudged = reminderSentStaff[u.id];
-                    return (
-                      <tr
-                        key={u.id}
-                        className={`transition ${
-                          item.status === 'confirmed'
-                            ? 'hover:bg-emerald-50/20'
-                            : item.status === 'pending_late'
-                            ? 'hover:bg-blue-50/20'
-                            : 'hover:bg-amber-50/20'
-                        }`}
-                      >
-                        <td className="py-2.5 px-4">
-                          <div className="font-semibold text-slate-900">{u.name}</div>
-                          <div className="text-[11px] text-slate-500">{u.title || u.department || 'Ground Operations'}</div>
-                        </td>
-                        <td className="py-2.5 px-4 font-mono text-[11px] text-slate-600">
-                          <div>{u.uNumber}</div>
-                          <div className="text-slate-400 font-sans">{u.email}</div>
-                        </td>
-                        <td className="py-2.5 px-4 text-[11px] text-slate-600">
-                          {u.isAls ? <span className="mr-1 px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 font-semibold text-[10px]">ALS</span> : null}
-                          {u.isLead ? <span className="mr-1 px-1.5 py-0.2 rounded bg-purple-100 text-purple-800 font-semibold text-[10px]">Lead</span> : null}
-                          {!u.isAls && !u.isLead ? <span className="text-slate-400 font-mono text-[10px]">ALL</span> : null}
-                        </td>
-                        <td className="py-2.5 px-4 whitespace-nowrap">
-                          {item.status === 'confirmed' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300">
-                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                              <span>PARTICIPATED</span>
-                            </span>
-                          ) : item.status === 'pending_late' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-900 border border-blue-300">
-                              <Clock className="w-3 h-3 text-blue-600" />
-                              <span>LATE REVIEW</span>
-                            </span>
-                          ) : item.status === 'not_participated' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-300">
-                              <span>NOT PARTICIPATED</span>
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                              <Clock className="w-3 h-3 text-amber-600" />
-                              <span>MISSING</span>
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-4 text-[11px]">
-                          {item.status === 'confirmed' && item.confirmation ? (
-                            <div>
-                              <span className="font-serif italic text-slate-800 block truncate max-w-[180px]">
-                                {item.confirmation.signatureText || u.name}
-                              </span>
-                              <span className="font-mono text-[10px] text-slate-500 tabular-nums">
-                                {item.confirmation.confirmedAt?.slice(0, 19).replace('T', ' ')}
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-slate-400 font-mono text-[10px]">Awaiting signature</span>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-4 text-right">
-                          {item.status === 'missing' && (
-                            <button
-                              onClick={() => handleSendReminder(u.id)}
-                              disabled={isNudged}
-                              className={`px-2.5 py-1 text-[11px] rounded transition ${
-                                isNudged
-                                  ? 'bg-slate-100 text-slate-400 cursor-default'
-                                  : 'bg-slate-100 hover:bg-blue-50 text-[#0078D4] border border-slate-200 cursor-pointer'
-                              }`}
-                            >
-                              {isNudged ? 'Nudge Sent ✓' : 'Send Reminder'}
-                            </button>
-                          )}
-                          {item.status === 'confirmed' && (
-                            <span className="text-emerald-700 text-[10px] font-semibold">
-                              Verified ✓
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          )}
-          {activeTab === 'missing' && (
-            <table className="w-full text-left text-xs border-collapse">
-              <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 sticky top-0">
-                <tr>
-                  <th className="py-2.5 px-4 font-semibold">Staff Member</th>
-                  <th className="py-2.5 px-4 font-semibold">ID / Email</th>
-                  <th className="py-2.5 px-4 font-semibold">Tags</th>
-                  <th className="py-2.5 px-4 font-semibold">Status</th>
-                  <th className="py-2.5 px-4 font-semibold text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredMissing.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="py-8 text-center text-slate-500">
-                      {missingStaff.length === 0
-                        ? '100% Compliance Achieved! All assigned staff have signed this topic.'
-                        : 'No staff match the search query.'}
-                    </td>
-                  </tr>
-                ) : (
-                  filteredMissing.map(u => {
-                    const isNudged = reminderSentStaff[u.id];
-                    return (
-                      <tr key={u.id} className="hover:bg-amber-50/30 transition">
-                        <td className="py-2.5 px-4">
-                          <div className="font-semibold text-slate-900">{u.name}</div>
-                          <div className="text-[11px] text-slate-500">{u.title || u.department || 'Ground Operations'}</div>
-                        </td>
-                        <td className="py-2.5 px-4 font-mono text-[11px] text-slate-600">
-                          <div>{u.uNumber}</div>
-                          <div className="text-slate-400 font-sans">{u.email}</div>
-                        </td>
-                        <td className="py-2.5 px-4 text-[11px] text-slate-600">
-                          {u.isAls ? 'ALS ' : ''}{u.isLead ? 'Lead ' : ''}{!u.isAls && !u.isLead ? 'ALL' : ''}
-                        </td>
-                        <td className="py-2.5 px-4">
-                          <span className="text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded text-[10px] font-medium">
-                            Pending Signature
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-4 text-right">
-                          <button
-                            onClick={() => handleSendReminder(u.id)}
-                            disabled={isNudged}
-                            className={`px-2.5 py-1 text-[11px] rounded transition ${
-                              isNudged
-                                ? 'bg-slate-100 text-slate-400 cursor-default'
-                                : 'bg-slate-100 hover:bg-blue-50 text-[#0078D4] border border-slate-200'
-                            }`}
-                          >
-                            {isNudged ? 'Nudge Sent ✓' : 'Send Reminder'}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          )}
-
-          {activeTab === 'confirmed' && (
-            <table className="w-full text-left text-xs border-collapse">
-              <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 sticky top-0">
-                <tr>
-                  <th className="py-2.5 px-4 font-semibold">Staff Member</th>
-                  <th className="py-2.5 px-4 font-semibold">ID / Email</th>
-                  <th className="py-2.5 px-4 font-semibold">Digital Signature</th>
-                  <th className="py-2.5 px-4 font-semibold">Confirmed At (UTC)</th>
-                  <th className="py-2.5 px-4 font-semibold text-right">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredConfirmed.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="py-8 text-center text-slate-500">
-                      {confirmedStaff.length === 0
-                        ? 'No staff have signed this topic yet.'
-                        : 'No staff match the search query.'}
-                    </td>
-                  </tr>
-                ) : (
-                  filteredConfirmed.map(item => (
-                    <tr key={item.user.id} className="hover:bg-emerald-50/20 transition">
-                      <td className="py-2.5 px-4">
-                        <div className="font-semibold text-slate-900">{item.user.name}</div>
-                        <div className="text-[11px] text-slate-500">{item.user.title || 'Ground Operations'}</div>
-                      </td>
-                      <td className="py-2.5 px-4 font-mono text-[11px] text-slate-600">
-                        <div>{item.user.uNumber}</div>
-                        <div className="text-slate-400 font-sans">{item.user.email}</div>
-                      </td>
-                      <td className="py-2.5 px-4 font-serif italic text-slate-700">
-                        {item.confirmation.signatureText || item.user.name}
-                      </td>
-                      <td className="py-2.5 px-4 font-mono text-[11px] text-slate-600 tabular-nums">
-                        {item.confirmation.confirmedAt.replace('T', ' ').slice(0, 19)}
-                      </td>
-                      <td className="py-2.5 px-4 text-right">
-                        <span className="text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded text-[10px] font-medium">
-                          Confirmed ✓
-                        </span>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          )}
-
-          {activeTab === 'pending_late' && (
-            <table className="w-full text-left text-xs border-collapse">
-              <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 sticky top-0">
-                <tr>
-                  <th className="py-2.5 px-4 font-semibold">Staff Member</th>
-                  <th className="py-2.5 px-4 font-semibold">Late Reason Provided</th>
-                  <th className="py-2.5 px-4 font-semibold">Submitted At</th>
-                  <th className="py-2.5 px-4 font-semibold text-right">Admin Action (Accept / Reject)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredPendingLate.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="py-8 text-center text-slate-500">
-                      No late submissions awaiting review.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredPendingLate.map(item => (
-                    <tr key={item.user.id} className="hover:bg-blue-50/20 transition">
-                      <td className="py-2.5 px-4">
-                        <div className="font-semibold text-slate-900">{item.user.name}</div>
-                        <div className="text-[11px] text-slate-500 font-mono">{item.user.uNumber} · {item.user.email}</div>
-                      </td>
-                      <td className="py-2.5 px-4 text-slate-800 italic bg-amber-50/50 rounded p-1.5 my-1">
-                        &ldquo;{item.confirmation.lateReason || 'No reason provided'}&rdquo;
-                      </td>
-                      <td className="py-2.5 px-4 font-mono text-[11px] text-slate-600 tabular-nums">
-                        {item.confirmation.confirmedAt.replace('T', ' ').slice(0, 19)}
-                      </td>
-                      <td className="py-2.5 px-4 text-right space-x-2">
-                        <button
-                          onClick={() => onUpdateConfirmation && onUpdateConfirmation(item.confirmation.id, 'confirmed')}
-                          className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded shadow-xs transition cursor-pointer"
-                          title="Accept late response and mark confirmed"
-                        >
-                          ✓ Accept
-                        </button>
-                        <button
-                          onClick={() => onUpdateConfirmation && onUpdateConfirmation(item.confirmation.id, 'rejected')}
-                          className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white font-semibold rounded shadow-xs transition cursor-pointer"
-                          title="Reject late response"
-                        >
-                          ✕ Reject
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs">
-          <span className="text-slate-500">
-            Records are verified against Microsoft 365 Entra ID organizational tokens.
-          </span>
           <button
             onClick={onClose}
-            className="px-4 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 rounded transition"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
           >
-            Close
+            <X className="w-5 h-5" />
           </button>
         </div>
-      </div>
 
-      {/* Close Topic Option Modal */}
-      {showCloseDialog && (
-        <div className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full border border-slate-200 p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5 text-indigo-700 font-bold text-base">
-                <CheckCircle2 className="w-5 h-5" />
-                <span>Close Topic for Acknowledgement</span>
-              </div>
-              <button onClick={() => setShowCloseDialog(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <p className="text-xs text-slate-700 leading-relaxed">
-              Choose how to handle the closing of <strong>&ldquo;{topic.title}&rdquo;</strong> for acknowledgement:
-            </p>
-
-            <div className="space-y-3 pt-1">
-              <label className={`flex items-start gap-3 p-3.5 rounded-xl border transition cursor-pointer ${
-                closeOption === 'mark_participated'
-                  ? 'bg-indigo-50/70 border-indigo-300 ring-1 ring-indigo-300'
-                  : 'bg-slate-50 border-slate-200 hover:border-slate-300'
-              }`}>
-                <input
-                  type="radio"
-                  name="closeOption"
-                  value="mark_participated"
-                  checked={closeOption === 'mark_participated'}
-                  onChange={() => setCloseOption('mark_participated')}
-                  className="mt-0.5 text-indigo-600 focus:ring-indigo-500"
-                />
-                <div className="text-xs space-y-0.5">
-                  <span className="font-bold text-slate-900 block">Mark remaining staff as participated</span>
-                  <span className="text-slate-600 block leading-normal">
-                    All {totalMissing} remaining unconfirmed staff will be automatically marked as verified and confirmed in Cloud Firestore, clearing their pending queues.
-                  </span>
-                </div>
-              </label>
-
-              <label className={`flex items-start gap-3 p-3.5 rounded-xl border transition cursor-pointer ${
-                closeOption === 'mark_not_participated'
-                  ? 'bg-indigo-50/70 border-indigo-300 ring-1 ring-indigo-300'
-                  : 'bg-slate-50 border-slate-200 hover:border-slate-300'
-              }`}>
-                <input
-                  type="radio"
-                  name="closeOption"
-                  value="mark_not_participated"
-                  checked={closeOption === 'mark_not_participated'}
-                  onChange={() => setCloseOption('mark_not_participated')}
-                  className="mt-0.5 text-indigo-600 focus:ring-indigo-500"
-                />
-                <div className="text-xs space-y-0.5">
-                  <span className="font-bold text-slate-900 block">Mark missing pax as not participated</span>
-                  <span className="text-slate-600 block leading-normal">
-                    All {totalMissing} missing staff will be officially recorded as <strong>Not Participated</strong> in Cloud Firestore. This preserves accurate compliance records without forcing false participation.
-                  </span>
-                </div>
-              </label>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+        {/* Modal Scroll Content */}
+        <div className="p-3 sm:p-6 overflow-y-auto space-y-4 sm:space-y-6 flex-1 bg-slate-50/50">
+          {/* Progress Bar & Interactive KPI Summary */}
+          <div className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200/80 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <button
-                onClick={() => setShowCloseDialog(false)}
-                className="px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                type="button"
+                onClick={() => setStatusFilter('all')}
+                className="text-left group cursor-pointer"
+                title="Click to reset status filter to All Staff"
               >
-                Cancel
+                <h3 className="text-xs sm:text-sm font-semibold text-slate-700 group-hover:text-blue-600 transition-colors">
+                  Compliance Rate
+                </h3>
+                <p className="text-xl sm:text-2xl font-black text-slate-900 group-hover:text-blue-700 transition-colors">
+                  {percentage}%
+                </p>
               </button>
+
+              <div className="flex flex-wrap gap-2 sm:gap-3 text-xs sm:text-sm font-medium">
+                {/* All Filter Card */}
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('all')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition cursor-pointer font-semibold ${
+                    statusFilter === 'all'
+                      ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                      : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+                  }`}
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>All ({totalCount})</span>
+                </button>
+
+                {/* Confirmed Quick Filter Card */}
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('confirmed')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition cursor-pointer font-semibold ${
+                    statusFilter === 'confirmed'
+                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs ring-2 ring-emerald-300'
+                      : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                  }`}
+                >
+                  <CheckCircle2 className="w-3.5 sm:w-4 h-3.5 sm:h-4" />
+                  <span>Confirmed ({confirmedCount})</span>
+                </button>
+
+                {/* Missing Quick Filter Card */}
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('missing')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition cursor-pointer font-semibold ${
+                    statusFilter === 'missing'
+                      ? 'bg-amber-600 text-white border-amber-600 shadow-xs ring-2 ring-amber-300'
+                      : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+                  }`}
+                >
+                  <Clock className="w-3.5 sm:w-4 h-3.5 sm:h-4" />
+                  <span>Missing ({missingCount})</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Visual Progress Bar */}
+            <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden flex">
+              <div
+                className="bg-emerald-500 h-full transition-all duration-500"
+                style={{ width: `${percentage}%` }}
+              />
+              <div
+                className="bg-amber-400 h-full transition-all duration-500"
+                style={{ width: `${Math.min(100 - percentage, totalCount > 0 ? (missingCount / totalCount) * 100 : 0)}%` }}
+              />
+            </div>
+          </div>
+
+          {/* User Status List & Filter Controls */}
+          <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden">
+            {/* Filter Toolbar Header */}
+            <div className="p-3 sm:p-4 border-b border-slate-200 bg-slate-50/90 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-slate-500 shrink-0" />
+                <h3 className="font-bold text-slate-800 text-xs sm:text-sm">
+                  Staff Breakdown ({filteredItems.length} / {totalCount})
+                </h3>
+              </div>
+
+              {/* Status Filter Buttons + Name Search Filter */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto">
+                {/* Filter for Confirmed & Missing Buttons */}
+                <div className="inline-flex rounded-lg bg-slate-200/80 p-0.5 text-xs font-semibold shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter('all')}
+                    className={`px-2.5 py-1 rounded-md transition ${
+                      statusFilter === 'all'
+                        ? 'bg-white text-slate-900 shadow-xs font-bold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter('confirmed')}
+                    className={`px-2.5 py-1 rounded-md transition flex items-center gap-1 ${
+                      statusFilter === 'confirmed'
+                        ? 'bg-emerald-600 text-white shadow-xs font-bold'
+                        : 'text-emerald-700 hover:bg-emerald-100/50'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-3 h-3" />
+                    Confirmed
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter('missing')}
+                    className={`px-2.5 py-1 rounded-md transition flex items-center gap-1 ${
+                      statusFilter === 'missing'
+                        ? 'bg-amber-600 text-white shadow-xs font-bold'
+                        : 'text-amber-700 hover:bg-amber-100/50'
+                    }`}
+                  >
+                    <Clock className="w-3 h-3" />
+                    Missing
+                  </button>
+                </div>
+
+                {/* Filter for Names Input */}
+                <div className="relative flex-1 sm:w-56">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    value={nameFilter}
+                    onChange={(e) => setNameFilter(e.target.value)}
+                    placeholder="Filter by name..."
+                    className="pl-9 pr-8 py-1.5 bg-white border border-slate-300 rounded-lg text-xs w-full text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                  />
+                  {nameFilter && (
+                    <button
+                      type="button"
+                      onClick={() => setNameFilter('')}
+                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
+                      title="Clear name filter"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Active Filters Bar */}
+            {isFiltered && (
+              <div className="px-4 py-2 bg-blue-50/70 border-b border-blue-100 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2 flex-wrap text-blue-900 font-medium">
+                  <span className="font-bold text-slate-600">Active Filters:</span>
+                  {statusFilter !== 'all' && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-blue-200 text-blue-800 font-semibold text-[11px]">
+                      Status: {statusFilter === 'confirmed' ? 'Confirmed Only' : 'Missing Only'}
+                      <button
+                        type="button"
+                        onClick={() => setStatusFilter('all')}
+                        className="hover:text-red-600 ml-0.5"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  )}
+                  {nameFilter.trim() !== '' && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-blue-200 text-blue-800 font-semibold text-[11px]">
+                      Name: &quot;{nameFilter}&quot;
+                      <button
+                        type="button"
+                        onClick={() => setNameFilter('')}
+                        className="hover:text-red-600 ml-0.5"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStatusFilter('all');
+                    setNameFilter('');
+                  }}
+                  className="text-[11px] font-bold text-blue-700 hover:text-blue-900 hover:underline"
+                >
+                  Reset All Filters
+                </button>
+              </div>
+            )}
+
+            {/* List of Users */}
+            <div className="divide-y divide-slate-100 max-h-80 overflow-y-auto">
+              {filteredItems.length === 0 ? (
+                <div className="p-8 text-center text-slate-500 space-y-2">
+                  <p className="text-sm font-semibold text-slate-700">No staff found matching filters</p>
+                  <p className="text-xs text-slate-400">
+                    Try clearing the name search or changing the status filter.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStatusFilter('all');
+                      setNameFilter('');
+                    }}
+                    className="mt-2 px-3 py-1.5 text-xs font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg transition"
+                  >
+                    Clear Filters
+                  </button>
+                </div>
+              ) : (
+                filteredItems.map(({ user, conf, isConfirmed }) => {
+                  const displayName = user.name || user.email || 'User';
+
+                  return (
+                    <div
+                      key={user.id}
+                      className="p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 hover:bg-slate-50/80 transition-colors"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-8 h-8 rounded-full bg-slate-900 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-xs">
+                          {displayName.slice(0, 2).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="text-xs sm:text-sm font-bold text-slate-900 truncate">
+                              {displayName}
+                            </p>
+                            {user.uNumber && (
+                              <span className="text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                                {user.uNumber}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 text-[11px] text-slate-500 font-medium truncate mt-0.5">
+                            <span>{user.email || ''}</span>
+                            {user.als && (
+                              <>
+                                <span>•</span>
+                                <span className="text-slate-600 font-semibold">ALS: {user.als}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                        {isConfirmed ? (
+                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 shadow-xs">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            Confirmed ({conf?.confirmedAt ? conf.confirmedAt.split('T')[0] : 'Completed'})
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200 shadow-xs">
+                            <Clock className="w-3.5 h-3.5 text-amber-600" />
+                            Missing / Pending
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Modal Footer Actions */}
+        <div className="bg-slate-100 px-6 py-4 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-2">
+            {topic.status === 'active' ? (
               <button
                 onClick={() => {
                   if (onCloseTopicForAcknowledgement) {
-                    onCloseTopicForAcknowledgement(topic.id, closeOption);
+                    onCloseTopicForAcknowledgement(topic.id, 'mark_participated');
                   }
-                  setShowCloseDialog(false);
                   onClose();
                 }}
-                className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition shadow-xs cursor-pointer"
+                className="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-xs font-semibold hover:bg-slate-900 flex items-center gap-1.5 transition-all shadow-sm"
               >
-                Confirm &amp; Close Session
+                <Lock className="w-3.5 h-3.5" />
+                Close for Acknowledgement
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Reopen Topic Modal */}
-      {showReopenDialog && (
-        <div className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-slate-200 p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5 text-amber-700 font-bold text-base">
-                <RotateCcw className="w-5 h-5" />
-                <span>Reopen Topic for Acknowledgement</span>
-              </div>
-              <button onClick={() => setShowReopenDialog(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <p className="text-xs text-slate-700 leading-relaxed">
-              Are you sure you want to reopen <strong>&ldquo;{topic.title}&rdquo;</strong>?
-            </p>
-
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900 space-y-1">
-              <span className="font-semibold block">Reopening Actions:</span>
-              <ul className="list-disc list-inside space-y-0.5">
-                <li>Topic status will return to active (not closed).</li>
-                <li>Admin closeout verifications will be cleared.</li>
-                <li>Assigned personnel can resume authentic acknowledgment and signing.</li>
-              </ul>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <button
-                onClick={() => setShowReopenDialog(false)}
-                className="px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition cursor-pointer"
-              >
-                Cancel
-              </button>
+            ) : (
               <button
                 onClick={() => {
                   if (onReopenTopicForAcknowledgement) {
                     onReopenTopicForAcknowledgement(topic.id);
                   }
-                  setShowReopenDialog(false);
                   onClose();
                 }}
-                className="px-4 py-2 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition shadow-xs cursor-pointer"
+                className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 flex items-center gap-1.5 transition-all shadow-sm"
               >
-                Confirm Reopen Topic
+                <Unlock className="w-3.5 h-3.5" />
+                Re-open Topic
               </button>
-            </div>
-          </div>
-        </div>
-      )}
+            )}
 
-      {/* Delete Topic In-App Confirmation Modal */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-slate-200 p-5 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2 text-red-600 font-bold text-base">
-                <AlertTriangle className="w-5 h-5" />
-                <span>Delete Compliance Topic</span>
-              </div>
+            {onDeleteTopic && (
               <button
                 type="button"
-                onClick={() => setShowDeleteConfirm(false)}
-                disabled={isDeleting}
-                className="text-slate-400 hover:text-slate-600 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <p className="text-xs text-slate-700 leading-relaxed">
-              Are you sure you want to permanently delete <strong>&ldquo;{topic.title}&rdquo;</strong> from Cloud Firestore?
-            </p>
-
-            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-[11px] text-red-900 space-y-1">
-              <strong className="block font-semibold">This action cannot be undone:</strong>
-              <ul className="list-disc list-inside space-y-0.5 text-red-800">
-                <li>Topic directive and staff assignments will be erased from Firestore.</li>
-                <li>All staff participation and signature audit records will be removed.</li>
-              </ul>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => setShowDeleteConfirm(false)}
-                disabled={isDeleting}
-                className="px-3.5 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  if (onDeleteTopic) {
-                    setIsDeleting(true);
-                    try {
-                      await onDeleteTopic(topic.id);
-                      onClose();
-                    } finally {
-                      setIsDeleting(false);
-                      setShowDeleteConfirm(false);
-                    }
-                  }
+                onClick={() => {
+                  onDeleteTopic(topic.id);
+                  onClose();
                 }}
-                disabled={isDeleting}
-                className="px-4 py-1.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg transition shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                className="px-3 py-1.5 text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
+                title="Permanently delete this compliance topic"
               >
-                {isDeleting ? (
-                  <>
-                    <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block" />
-                    <span>Deleting...</span>
-                  </>
-                ) : (
-                  <>
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Delete Permanently</span>
-                  </>
-                )}
+                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                <span>Delete Topic</span>
               </button>
-            </div>
+            )}
           </div>
+
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50 transition-colors"
+          >
+            Done
+          </button>
         </div>
-      )}
+      </div>
     </div>
   );
 }

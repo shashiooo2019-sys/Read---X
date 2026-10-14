@@ -12,6 +12,7 @@ import {
   deduplicateTopicsByTitle,
 } from '@/lib/compliance-store';
 import { exportSingleTopicReport, exportMultipleTopicsReport } from '@/lib/export-utils';
+import { AppBanner } from '@/components/common/app-banner';
 import { CreateTopicModal } from './create-topic-modal';
 import { TopicBreakdownModal } from './topic-breakdown-modal';
 import { ApprovedUsersManager, AuditLogModal } from './admin-auth-controls';
@@ -42,11 +43,14 @@ import {
   Cloud,
   X,
   ExternalLink,
+  MoreVertical,
 } from 'lucide-react';
 import { saveAllTopicsAndAssignmentsToFirestore } from '@/lib/firebase';
 import { ImportTopicParticipationModal } from './import-topic-participation-modal';
 import { TopicParticipationImportResult } from '@/lib/topic-participation-importer';
 import { FirestoreConfirmationDetails } from '@/components/common/firestore-save-modal';
+
+import { StaffDatabaseManager } from './staff-database-manager';
 
 interface AdminConsoleProps {
   users: User[];
@@ -58,6 +62,10 @@ interface AdminConsoleProps {
   onCloseTopicForAcknowledgement?: (topicId: string, option: TopicCloseOption) => void;
   onReopenTopicForAcknowledgement?: (topicId: string) => void;
   onUpdateConfirmation?: (confirmationId: string, newStatus: 'confirmed' | 'rejected', reviewNote?: string) => void;
+  onSaveUser?: (user: User) => Promise<void>;
+  onDeleteUser?: (userId: string) => Promise<void>;
+  onResetUserPassword?: (userId: string) => Promise<void>;
+  onBulkImportUsers?: (importedUsers: Omit<User, 'id'>[]) => Promise<void>;
   onNavigateToRoster?: () => void;
   onImportTopicParticipation?: (result: TopicParticipationImportResult) => Promise<void>;
   onShowFirestoreConfirmation?: (details: FirestoreConfirmationDetails) => void;
@@ -103,15 +111,23 @@ export function AdminConsole({
   onCloseTopicForAcknowledgement,
   onReopenTopicForAcknowledgement,
   onUpdateConfirmation,
+  onSaveUser,
+  onDeleteUser,
+  onResetUserPassword,
+  onBulkImportUsers,
   onNavigateToRoster,
   onImportTopicParticipation,
   onShowFirestoreConfirmation,
 }: AdminConsoleProps) {
+  // Main Navigation Tab
+  const [activeMainTab, setActiveMainTab] = useState<'topics' | 'staff_database'>('topics');
+
   // Modal states
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showImportParticipationModal, setShowImportParticipationModal] = useState(false);
   const [selectedTopicForBreakdown, setSelectedTopicForBreakdown] = useState<TopicComplianceStats | null>(null);
   const [topicToClose, setTopicToClose] = useState<{ topic: Topic; stat: TopicComplianceStats } | null>(null);
+  const [adminCloseOption, setAdminCloseOption] = useState<TopicCloseOption>('mark_participated');
   const [showApprovedModal, setShowApprovedModal] = useState(false);
   const [showAuditModal, setShowAuditModal] = useState(false);
 
@@ -210,6 +226,9 @@ export function AdminConsole({
   const [showHeaderBar, setShowHeaderBar] = useState(false);
   const [showOverviewMetrics, setShowOverviewMetrics] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+
+  // Dropdown menu state for topic options
+  const [openMoreMenuTopicId, setOpenMoreMenuTopicId] = useState<string | null>(null);
 
   // Quick counts for clickable filter boxes
   const targetGroupCounts = useMemo(() => {
@@ -399,7 +418,49 @@ export function AdminConsole({
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+    <div className="w-full max-w-[1800px] mx-auto px-2 sm:px-4 lg:px-6 py-6 space-y-6">
+      {/* Read X Compliance Banner */}
+      <AppBanner />
+
+      {/* Admin View Mode Switcher */}
+      <div className="flex items-center gap-2 bg-slate-200/80 p-1.5 rounded-2xl border border-slate-300 w-fit">
+        <button
+          onClick={() => setActiveMainTab('topics')}
+          className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+            activeMainTab === 'topics'
+              ? 'bg-white text-slate-900 shadow-sm border border-slate-200/80'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <Layers className="w-4 h-4 text-blue-600" />
+          <span>Compliance Directives &amp; Topics</span>
+        </button>
+
+        <button
+          onClick={() => setActiveMainTab('staff_database')}
+          className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+            activeMainTab === 'staff_database'
+              ? 'bg-slate-900 text-white shadow-sm'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <Users className="w-4 h-4 text-sky-400" />
+          <span>Staff Database Management ({users.length})</span>
+        </button>
+      </div>
+
+      {activeMainTab === 'staff_database' ? (
+        <StaffDatabaseManager
+          users={users}
+          topics={topics}
+          confirmations={confirmations}
+          onSaveUser={onSaveUser || (async () => {})}
+          onDeleteUser={onDeleteUser || (async () => {})}
+          onResetUserPassword={onResetUserPassword || (async () => {})}
+          onBulkImportUsers={onBulkImportUsers || (async () => {})}
+        />
+      ) : (
+        <>
       {currentUser.isSuperAdmin && (
         <div id="superadmin-wbt-section" className="bg-linear-to-r from-blue-50 to-indigo-50/70 border border-blue-200 p-5 rounded-2xl shadow-xs space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1420,8 +1481,8 @@ export function AdminConsole({
           </div>
         </div>
 
-        {/* Table */}
-        <div ref={tableScrollRef} className="overflow-x-auto relative">
+        {/* Table View for desktop (md and larger) */}
+        <div ref={tableScrollRef} className="hidden md:block overflow-x-auto relative">
           <table className="w-full text-left text-xs border-collapse">
             <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
               <tr>
@@ -1646,70 +1707,120 @@ export function AdminConsole({
                         )}
                       </td>
 
-                      <td className="py-3 px-4 text-right space-x-1 whitespace-nowrap">
-                        {/* Close for acknowledgement if Training/Briefing/Role Play */}
-                        {topic.isClosed ? (
-                          <span className="px-2 py-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded inline-flex items-center gap-1">
-                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                            <span>Closed</span>
-                          </span>
-                        ) : (topic.type === 'Training' || topic.type === 'Briefing' || topic.type === 'Role Play') &&
-                          (totalMissing === 0 || (topic.dueDate && topic.dueDate < new Date().toISOString().split('T')[0])) ? (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setTopicToClose({ topic, stat });
-                            }}
-                            className="px-2.5 py-1 text-[11px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded transition inline-flex items-center gap-1 shadow-xs cursor-pointer"
-                            title="Close topic for acknowledgement: verifies all assigned participants"
-                          >
-                            <CheckCircle2 className="w-3 h-3" />
-                            <span>Close for Ack</span>
-                          </button>
-                        ) : null}
-
-                        {/* Breakdown drill-down */}
+                      <td className="py-3 px-4 text-right space-x-2 whitespace-nowrap">
+                        {/* Staff Details Button */}
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             setSelectedTopicForBreakdown(stat);
                           }}
-                          className="px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded transition inline-flex items-center gap-1 cursor-pointer"
-                          title="View list of confirmed and missing staff for this topic"
+                          className="px-3 py-1.5 text-xs font-bold text-white bg-[#0078D4] hover:bg-[#106EBE] rounded-xl transition inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
+                          title="View staff details, confirmed signatures, and pending acknowledgements"
                         >
-                          <Users className="w-3 h-3 text-[#0078D4]" />
-                          <span>Staff List</span>
+                          <Users className="w-3.5 h-3.5" />
+                          <span>Staff Details</span>
                         </button>
 
-                        {/* Export Single Topic CSV */}
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            exportSingleTopicReport(stat);
-                          }}
-                          className="px-2 py-1 text-[11px] text-[#0078D4] hover:bg-blue-50 border border-slate-200 rounded transition inline-flex items-center gap-1 cursor-pointer"
-                          title="Export single topic compliance report (CSV)"
-                        >
-                          <Download className="w-3 h-3" />
-                          <span>CSV</span>
-                        </button>
-
-                        {/* Delete topic */}
+                        {/* Direct Delete Topic Button */}
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             setTopicToDelete(topic);
                           }}
-                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition cursor-pointer"
-                          title={`Delete compliance topic & directive "${topic.title}"`}
-                          aria-label={`Delete compliance topic ${topic.title}`}
+                          className="px-2.5 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition inline-flex items-center gap-1 cursor-pointer"
+                          title="Delete this topic"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                          <span>Delete</span>
                         </button>
+
+                        {/* More Options Dropdown */}
+                        <div className="relative inline-block text-left" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            onClick={() => setOpenMoreMenuTopicId(openMoreMenuTopicId === topic.id ? null : topic.id)}
+                            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl transition inline-flex items-center gap-1 cursor-pointer"
+                            title="Click for More Options"
+                          >
+                            <MoreVertical className="w-3.5 h-3.5 text-slate-600" />
+                            <span>More Options</span>
+                          </button>
+
+                          {openMoreMenuTopicId === topic.id && (
+                            <div className="absolute right-0 mt-1 w-56 rounded-2xl bg-white shadow-xl border border-slate-200 z-50 p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-150 text-left">
+                              {!topic.isClosed ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setTopicToClose({ topic, stat });
+                                    setOpenMoreMenuTopicId(null);
+                                  }}
+                                  className="w-full text-left px-3 py-2 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 rounded-xl transition flex items-center gap-2"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600" />
+                                  <span>Close for Ack</span>
+                                </button>
+                              ) : (
+                                <div className="px-3 py-1.5 text-[11px] text-emerald-700 bg-emerald-50 rounded-xl font-medium flex items-center gap-1.5">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span>Topic Closed</span>
+                                </div>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedTopicForBreakdown(stat);
+                                  setOpenMoreMenuTopicId(null);
+                                }}
+                                className="w-full text-left px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 rounded-xl transition flex items-center gap-2"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Participation Details ({totalConfirmed})</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedTopicForBreakdown(stat);
+                                  setOpenMoreMenuTopicId(null);
+                                }}
+                                className="w-full text-left px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-50 rounded-xl transition flex items-center gap-2"
+                              >
+                                <Clock className="w-3.5 h-3.5 text-amber-600" />
+                                <span>Missing Details ({totalMissing})</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  exportSingleTopicReport(stat);
+                                  setOpenMoreMenuTopicId(null);
+                                }}
+                                className="w-full text-left px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50 rounded-xl transition flex items-center gap-2"
+                              >
+                                <Download className="w-3.5 h-3.5 text-blue-600" />
+                                <span>Export CSV Report</span>
+                              </button>
+
+                              <div className="border-t border-slate-100 my-1" />
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setTopicToDelete(topic);
+                                  setOpenMoreMenuTopicId(null);
+                                }}
+                                className="w-full text-left px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-xl transition flex items-center gap-2"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                                <span>Delete Topic</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1717,6 +1828,253 @@ export function AdminConsole({
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile Card View for Compliance Topics (Visible on Mobile Screens / md:hidden) */}
+        <div className="block md:hidden p-3 space-y-3 bg-slate-100/70 border-t border-slate-200">
+          {filteredTopicStats.length === 0 ? (
+            <div className="bg-white p-6 rounded-2xl text-center text-slate-500 text-xs border border-slate-200">
+              No compliance topics match the current filter criteria.
+            </div>
+          ) : (
+            filteredTopicStats.map((stat) => {
+              const {
+                topic,
+                totalEligible,
+                totalConfirmed,
+                totalMissing,
+                completionRate,
+              } = stat;
+              const isSelected = selectedTopicIds.has(topic.id);
+
+              return (
+                <div
+                  key={topic.id}
+                  onClick={() => setSelectedTopicForBreakdown(stat)}
+                  className={`bg-white rounded-2xl border p-4 shadow-sm transition-all space-y-3 cursor-pointer ${
+                    isSelected ? 'border-[#0078D4] ring-2 ring-[#0078D4]/20 bg-blue-50/20' : 'border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  {/* Card Header: Checkbox, Title, Status Badges */}
+                  <div className="flex items-start justify-between gap-3 pb-2.5 border-b border-slate-100">
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          toggleSelectTopic(topic.id);
+                        }}
+                        className="w-4 h-4 text-[#0078D4] rounded border-slate-300 shrink-0 mt-0.5"
+                      />
+                      <div className="min-w-0 space-y-1">
+                        <h4 className="font-bold text-slate-900 text-sm leading-snug break-words">
+                          {topic.title}
+                        </h4>
+                        <div className="flex flex-wrap items-center gap-1">
+                          {isTopicFuturePlanned(topic) && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-900 border border-purple-200">
+                              <Calendar className="w-2.5 h-2.5 text-purple-700 shrink-0" />
+                              <span>Future Planned</span>
+                            </span>
+                          )}
+                          {topic.isClosed && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-200">
+                              <CheckCircle2 className="w-2.5 h-2.5 text-emerald-700 shrink-0" />
+                              <span>Closed</span>
+                            </span>
+                          )}
+                          {!topic.isClosed && topic.dueDate && topic.dueDate < new Date().toISOString().split('T')[0] && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-900 border border-rose-200">
+                              <AlertTriangle className="w-2.5 h-2.5 text-rose-700 shrink-0" />
+                              <span>Overdue</span>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Wrapped Details Grid */}
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 col-span-2 sm:col-span-1">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Type &amp; Category</span>
+                      <span className="font-semibold text-slate-800 break-words">{topic.type}</span>
+                      {topic.customTypeDesc && (
+                        <p className="text-[10px] text-slate-500 italic mt-0.5">{topic.customTypeDesc}</p>
+                      )}
+                    </div>
+
+                    <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Target Group</span>
+                      <span className={`font-bold px-2 py-0.5 rounded text-[11px] inline-block ${
+                        topic.targetGroup === 'ALL'
+                          ? 'bg-blue-100 text-blue-800'
+                          : topic.targetGroup === 'ALS'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : topic.targetGroup === 'Lead'
+                          ? 'bg-purple-100 text-purple-800'
+                          : 'bg-amber-100 text-amber-800'
+                      }`}>
+                        {topic.targetGroup === 'ALS_AND_LEAD' ? 'ALS & Lead' : topic.targetGroup}
+                      </span>
+                    </div>
+
+                    <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Due Date</span>
+                      <span className="font-medium text-slate-800">{topic.dueDate || 'N/A'}</span>
+                    </div>
+
+                    <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 col-span-2">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] uppercase font-bold text-slate-400">Staff Compliance Rate</span>
+                        <span className="font-extrabold text-slate-900 text-xs">{completionRate}%</span>
+                      </div>
+                      <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden flex">
+                        <div
+                          className={`h-full transition-all duration-300 ${
+                            completionRate === 100 ? 'bg-emerald-500' : completionRate >= 70 ? 'bg-[#0078D4]' : 'bg-amber-500'
+                          }`}
+                          style={{ width: `${completionRate}%` }}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between mt-1.5 text-[11px]">
+                        <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          {totalConfirmed} / {totalEligible} Confirmed
+                        </span>
+                        <span className="text-amber-700 font-semibold flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-amber-600" />
+                          {totalMissing} Missing
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Actions & Tap Target */}
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-mono text-slate-500 truncate">
+                      Pub: {topic.publishedDate || topic.effectiveDate || topic.createdAt?.slice(0, 10)}
+                    </span>
+
+                    <div className="flex items-center gap-2">
+                      {/* Staff Details Button */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedTopicForBreakdown(stat);
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-[#0078D4] text-white hover:bg-[#106EBE] font-bold text-xs flex items-center gap-1 shadow-sm transition cursor-pointer"
+                      >
+                        <Users className="w-3.5 h-3.5" />
+                        <span>Staff Details</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setTopicToDelete(topic);
+                        }}
+                        className="px-2.5 py-1.5 rounded-xl bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 font-bold text-xs flex items-center gap-1 transition cursor-pointer"
+                        title="Delete topic"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                        <span>Delete</span>
+                      </button>
+
+                      {/* More Options Dropdown */}
+                      <div className="relative inline-block text-left" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => setOpenMoreMenuTopicId(openMoreMenuTopicId === topic.id ? null : topic.id)}
+                          className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl transition inline-flex items-center gap-1 cursor-pointer"
+                          title="Click for More Options"
+                        >
+                          <MoreVertical className="w-3.5 h-3.5 text-slate-600" />
+                          <span>More Options</span>
+                        </button>
+
+                        {openMoreMenuTopicId === topic.id && (
+                          <div className="absolute right-0 bottom-full mb-1 w-56 rounded-2xl bg-white shadow-xl border border-slate-200 z-50 p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-150 text-left">
+                            {!topic.isClosed ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setTopicToClose({ topic, stat });
+                                  setOpenMoreMenuTopicId(null);
+                                }}
+                                className="w-full text-left px-3 py-2 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 rounded-xl transition flex items-center gap-2"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600" />
+                                <span>Close for Ack</span>
+                              </button>
+                            ) : (
+                              <div className="px-3 py-1.5 text-[11px] text-emerald-700 bg-emerald-50 rounded-xl font-medium flex items-center gap-1.5">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Topic Closed</span>
+                              </div>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedTopicForBreakdown(stat);
+                                setOpenMoreMenuTopicId(null);
+                              }}
+                              className="w-full text-left px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 rounded-xl transition flex items-center gap-2"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>Participation Details ({totalConfirmed})</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedTopicForBreakdown(stat);
+                                setOpenMoreMenuTopicId(null);
+                              }}
+                              className="w-full text-left px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-50 rounded-xl transition flex items-center gap-2"
+                            >
+                              <Clock className="w-3.5 h-3.5 text-amber-600" />
+                              <span>Missing Details ({totalMissing})</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                exportSingleTopicReport(stat);
+                                setOpenMoreMenuTopicId(null);
+                              }}
+                              className="w-full text-left px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50 rounded-xl transition flex items-center gap-2"
+                            >
+                              <Download className="w-3.5 h-3.5 text-blue-600" />
+                              <span>Export CSV Report</span>
+                            </button>
+
+                            <div className="border-t border-slate-100 my-1" />
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTopicToDelete(topic);
+                                setOpenMoreMenuTopicId(null);
+                              }}
+                              className="w-full text-left px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-xl transition flex items-center gap-2"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                              <span>Delete Topic</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
 
@@ -1733,11 +2091,18 @@ export function AdminConsole({
       {/* Topic Staff Breakdown Drill-down Modal */}
       {selectedTopicForBreakdown && (
         <TopicBreakdownModal
+          topic={selectedTopicForBreakdown.topic}
           stats={selectedTopicForBreakdown}
+          users={users}
+          confirmations={confirmations}
           onUpdateConfirmation={onUpdateConfirmation}
           onCloseTopicForAcknowledgement={onCloseTopicForAcknowledgement}
           onReopenTopicForAcknowledgement={onReopenTopicForAcknowledgement}
-          onDeleteTopic={onDeleteTopic}
+          onDeleteTopic={(topicId) => {
+            const targetTopic = topics.find((t) => t.id === topicId) || selectedTopicForBreakdown.topic;
+            setSelectedTopicForBreakdown(null);
+            setTopicToDelete(targetTopic);
+          }}
           onClose={() => setSelectedTopicForBreakdown(null)}
         />
       )}
@@ -1757,7 +2122,7 @@ export function AdminConsole({
             </div>
 
             <p className="text-xs text-slate-700 leading-relaxed">
-              Are you sure you want to close <strong>&ldquo;{topicToClose.topic.title}&rdquo;</strong> for acknowledgement?
+              Choose how to handle the closing of <strong>&ldquo;{topicToClose.topic.title}&rdquo;</strong> for acknowledgement:
             </p>
 
             <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1.5">
@@ -1779,16 +2144,51 @@ export function AdminConsole({
               </div>
             </div>
 
-            <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-[11px] text-indigo-900 space-y-1">
-              <strong className="block font-semibold">Immediate Closeout Actions:</strong>
-              <ul className="list-disc list-inside space-y-0.5">
-                <li>Topic will be marked as Closed for Acknowledgement in Cloud Firestore.</li>
-                <li>Participation will be verified and marked confirmed for all remaining {topicToClose.stat.totalMissing} participant(s).</li>
-                <li>Item will be permanently cleared from each individual staff member&apos;s pending tasks queue.</li>
-              </ul>
+            <div className="space-y-3 pt-1">
+              <label className={`flex items-start gap-3 p-3.5 rounded-xl border transition cursor-pointer ${
+                adminCloseOption === 'mark_participated'
+                  ? 'bg-indigo-50/70 border-indigo-300 ring-1 ring-indigo-300'
+                  : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+              }`}>
+                <input
+                  type="radio"
+                  name="adminCloseOption"
+                  value="mark_participated"
+                  checked={adminCloseOption === 'mark_participated'}
+                  onChange={() => setAdminCloseOption('mark_participated')}
+                  className="mt-0.5 text-indigo-600 focus:ring-indigo-500"
+                />
+                <div className="text-xs space-y-0.5">
+                  <span className="font-bold text-slate-900 block">Mark remaining staff as participated</span>
+                  <span className="text-slate-600 block leading-normal">
+                    All {topicToClose.stat.totalMissing} remaining unconfirmed staff will be automatically marked as verified and confirmed in Cloud Firestore, clearing their pending queues.
+                  </span>
+                </div>
+              </label>
+
+              <label className={`flex items-start gap-3 p-3.5 rounded-xl border transition cursor-pointer ${
+                adminCloseOption === 'mark_not_participated'
+                  ? 'bg-indigo-50/70 border-indigo-300 ring-1 ring-indigo-300'
+                  : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+              }`}>
+                <input
+                  type="radio"
+                  name="adminCloseOption"
+                  value="mark_not_participated"
+                  checked={adminCloseOption === 'mark_not_participated'}
+                  onChange={() => setAdminCloseOption('mark_not_participated')}
+                  className="mt-0.5 text-indigo-600 focus:ring-indigo-500"
+                />
+                <div className="text-xs space-y-0.5">
+                  <span className="font-bold text-slate-900 block">Mark missing participants as NOTPARTICIPATED</span>
+                  <span className="text-slate-600 block leading-normal">
+                    Only missing staff members who were added or assigned to this topic will be recorded as <strong>NOTPARTICIPATED</strong> in Cloud Firestore. Unrelated station staff are not affected.
+                  </span>
+                </div>
+              </label>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2">
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
               <button
                 onClick={() => setTopicToClose(null)}
                 className="px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition cursor-pointer"
@@ -1798,7 +2198,7 @@ export function AdminConsole({
               <button
                 onClick={() => {
                   if (onCloseTopicForAcknowledgement) {
-                    onCloseTopicForAcknowledgement(topicToClose.topic.id, 'mark_participated');
+                    onCloseTopicForAcknowledgement(topicToClose.topic.id, adminCloseOption);
                   }
                   setTopicToClose(null);
                   if (selectedTopicForBreakdown?.topic.id === topicToClose.topic.id) {
@@ -1807,7 +2207,7 @@ export function AdminConsole({
                 }}
                 className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition shadow-xs cursor-pointer"
               >
-                Confirm Close &amp; Verify All Participations
+                Confirm &amp; Close Session
               </button>
             </div>
           </div>
@@ -1835,6 +2235,7 @@ export function AdminConsole({
       {showImportParticipationModal && (
         <ImportTopicParticipationModal
           users={users}
+          topics={topics}
           onCommitImport={async (result) => {
             if (onImportTopicParticipation) {
               await onImportTopicParticipation(result);
@@ -1994,6 +2395,8 @@ export function AdminConsole({
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

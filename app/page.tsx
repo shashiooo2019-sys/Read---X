@@ -1,842 +1,631 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { User, Topic, TopicConfirmation, TopicCloseOption } from '@/lib/types';
-import { INITIAL_STAFF_ROSTER } from '@/lib/roster-data';
-import { INITIAL_TOPICS, generateInitialConfirmations } from '@/lib/initial-topics';
-import {
-  getStoredUsers,
-  saveUsers,
-  getStoredTopics,
-  saveTopics,
-  getStoredConfirmations,
-  saveConfirmations,
-  getCurrentUserId,
-  setCurrentUserId,
-  syncConfirmationsWithFirebase,
-  syncTopicsWithFirebase,
-  syncUsersWithFirebase,
-  isUserEligibleForTopic,
-  isConfirmationForStaff,
-} from '@/lib/compliance-store';
-import {
-  saveVerificationToFirestore,
-  saveAllVerificationsToFirestore,
-  deleteVerificationFromFirestore,
-  saveTopicToFirestore,
-  saveTopicAssignmentsToFirestore,
-  saveAllTopicsAndAssignmentsToFirestore,
-  deleteTopicFromFirestore,
-  saveUserToFirestore,
-  deleteUserFromFirestore,
-  saveAllUsersToFirestore,
-  closeTopicForAcknowledgementInFirestore,
-  reopenTopicInFirestore,
-} from '@/lib/firebase';
-import { TopicParticipationImportResult, normalizeTopicDirectiveKey, resolveStaffUserId } from '@/lib/topic-participation-importer';
-import { GoogleLogin } from '@/components/auth/google-login';
-import { TopBar } from '@/components/navigation/top-bar';
-import { UserDashboard } from '@/components/user/user-dashboard';
 import { AdminConsole } from '@/components/admin/admin-console';
-import { StaffRosterView } from '@/components/admin/staff-roster-view';
-import { ReportsView } from '@/components/admin/reports-view';
-import { FirestoreSaveModal, FirestoreConfirmationDetails } from '@/components/common/firestore-save-modal';
+import { StaffPortal } from '@/components/staff/staff-portal';
+import { LoginPortalModal } from '@/components/auth/login-portal-modal';
+import { User, Topic, TopicConfirmation } from '@/lib/types';
+import {
+  subscribeToTopics,
+  subscribeToUsers,
+  subscribeToConfirmations,
+  saveTopicToCloud,
+  updateTopicStatusInCloud,
+  saveConfirmationToCloud,
+  saveUserToCloud,
+  deleteUserFromCloud,
+  deleteTopicFromCloud,
+  validateCloudConnection,
+  auth,
+} from '@/lib/firebase';
+import { signOut } from 'firebase/auth';
+import {
+  Cloud,
+  CheckCircle2,
+  ShieldCheck,
+  Wifi,
+  LogOut,
+  User as UserIcon,
+  LogIn,
+  Shield,
+  Sparkles,
+  Users,
+  Building,
+} from 'lucide-react';
 
+import { AppBanner } from '@/components/common/app-banner';
 
 export default function Home() {
-  const mounted = React.useSyncExternalStore(
-    () => () => {},
-    () => true,
-    () => false
-  );
-
-  const [users, setUsers] = useState<User[]>(() => getStoredUsers());
-  const [topics, setTopics] = useState<Topic[]>(() => getStoredTopics());
-  const [confirmations, setConfirmations] = useState<TopicConfirmation[]>(() => getStoredConfirmations());
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [sessionChecking, setSessionChecking] = useState(true);
-  const [activeTab, setActiveTab] = useState<'my-compliance' | 'admin-console' | 'staff-roster' | 'reports'>('my-compliance');
-  const [firestoreConfirmation, setFirestoreConfirmation] = useState<FirestoreConfirmationDetails | null>(null);
-  const handleCloseFirestoreConfirmation = React.useCallback(() => {
-    setFirestoreConfirmation(null);
-  }, []);
-
-
-
-
-
-
-  // Verify server session on load (Zero browser storage, authenticated session check)
-  useEffect(() => {
-    async function checkServerSession() {
-      try {
-        const res = await fetch('/api/auth/session');
-        const contentType = res.headers.get('content-type');
-        if (contentType && contentType.includes('application/json')) {
-          const data = await res.json();
-          if (data.authenticated && data.user) {
-            setCurrentUser(data.user);
-            setCurrentUserId(data.user.id);
-            if (data.user.isAdmin) {
-              setActiveTab('admin-console');
-            }
-          } else {
-            setCurrentUser(null);
-            setCurrentUserId(null);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to verify session on server', err);
-      } finally {
-        setSessionChecking(false);
-      }
-    }
-    checkServerSession();
-  }, []);
-
-  // Listen to external data changes if any, and synchronize with Firebase Firestore
-  useEffect(() => {
-    const handleDataChanged = () => {
-      setUsers(getStoredUsers());
-      setTopics(getStoredTopics());
-      setConfirmations(getStoredConfirmations());
-    };
-    window.addEventListener('read_and_sign_data_changed', handleDataChanged);
-
-    // Initial sync directly from Firebase Firestore (Zero browser storage policy)
-    syncUsersWithFirebase()
-      .then(remoteUsers => {
-        if (remoteUsers) setUsers(remoteUsers);
-        return syncTopicsWithFirebase(remoteUsers);
-      })
-      .then(remoteTopics => {
-        if (remoteTopics) setTopics(remoteTopics);
-      })
-      .catch(err => {
-        console.warn('Firebase initial sync notice:', err);
-      });
-
-    syncConfirmationsWithFirebase()
-      .then(remoteConfs => {
-        if (remoteConfs) setConfirmations(remoteConfs);
-      })
-      .catch(err => {
-        console.warn('Firebase verifications sync notice:', err);
-      });
-
-    return () => window.removeEventListener('read_and_sign_data_changed', handleDataChanged);
-  }, []);
-
-  // Login handler
-  const handleLoginSuccess = (user: User) => {
-    setCurrentUser(user);
-    setCurrentUserId(user.id);
-
-    if (user.isAdmin) {
-      setActiveTab('admin-console');
-    } else {
-      setActiveTab('my-compliance');
-    }
+  const defaultSuperAdmin: User = {
+    id: 'usr-1',
+    uNumber: 'U1000',
+    name: 'Sarah Jenkins',
+    email: 'sarah.jenkins@groundops.com',
+    als: 'ALS-HQ',
+    lead: 'Lead Executive',
+    role: 'admin',
+    isSuperAdmin: true,
+    team: 'Flight Safety & Operations',
+    department: 'Ground Operations',
   };
 
-  // Logout handler (Session cleared on server, zero device lock)
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [topics, setTopics] = useState<Topic[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [confirmations, setConfirmations] = useState<TopicConfirmation[]>([]);
+  const [cloudStatusMessage, setCloudStatusMessage] = useState<string | null>(null);
+  const [isConnectedToCloud, setIsConnectedToCloud] = useState<boolean>(true);
+  const [showLoginModal, setShowLoginModal] = useState<boolean>(true);
+
+  // Initial Seed Data for Cloud Firestore
+  const initialSeedTopics: Topic[] = [
+    {
+      id: 'top-104',
+      title: 'Annual Web-Based Training (WBT) - Ground Safety & De-icing 2026',
+      description: 'Mandatory annual online WBT course. Complete module on LMS, upload certificate to Teams, and submit for Super Admin verification.',
+      content: 'Please complete the online WBT module in your browser or Vitero LMS, download your completion certificate PDF, upload it to the Microsoft Teams / SharePoint folder, and submit your completion notice here.',
+      type: 'WBT',
+      targetGroup: 'All',
+      publishedDate: '2026-10-01',
+      dueDate: '2026-10-31',
+      createdBy: 'sarah.jenkins@groundops.com',
+      createdAt: '2026-10-01T09:00:00Z',
+      status: 'active',
+    },
+    {
+      id: 'top-101',
+      title: 'Q4 2026 Ramp Safety & Hazardous Materials Protocol',
+      description: 'Mandatory read and sign directive covering revised aircraft loading standards and hazmat safety protocols.',
+      content: 'All personnel must adhere strictly to standard operating procedures when handling hazardous cargo and operating motorized ramp equipment.',
+      type: 'Document Read and Sign',
+      targetGroup: 'All',
+      publishedDate: '2026-10-01',
+      dueDate: '2026-10-31',
+      createdBy: 'sarah.jenkins@groundops.com',
+      createdAt: '2026-10-01T08:00:00Z',
+      status: 'active',
+    },
+    {
+      id: 'top-102',
+      title: 'Vitero Virtual Security Briefing - October Session',
+      description: 'Online interactive briefing regarding updated terminal access permissions and biometric security clearance.',
+      content: 'Participate in the live Vitero session or review the recorded webinar and sign off on compliance obligations.',
+      type: 'Vitero Sessions',
+      targetGroup: 'Lead',
+      publishedDate: '2026-10-05',
+      dueDate: '2026-10-25',
+      createdBy: 'sarah.jenkins@groundops.com',
+      createdAt: '2026-10-05T09:30:00Z',
+      status: 'active',
+    },
+    {
+      id: 'top-103',
+      title: 'Ground Ops Community Call #14 - Winter Readiness',
+      description: 'Monthly operational sync reviewing de-icing procedures and extreme weather emergency response plans.',
+      content: 'Review winter weather operational directives, revised contact trees, and equipment inspection logs.',
+      type: 'Ground Ops Community Calls',
+      targetGroup: 'ALS',
+      publishedDate: '2026-09-20',
+      dueDate: '2026-10-10',
+      createdBy: 'sarah.jenkins@groundops.com',
+      createdAt: '2026-09-20T11:00:00Z',
+      status: 'closed',
+      closeOption: 'mark_participated',
+    },
+  ];
+
+  const initialSeedUsers: User[] = [
+    {
+      id: 'usr-1',
+      uNumber: 'U1000',
+      name: 'Sarah Jenkins',
+      email: 'sarah.jenkins@groundops.com',
+      als: 'ALS-HQ',
+      lead: 'Lead Executive',
+      role: 'admin',
+      isSuperAdmin: true,
+      team: 'Flight Safety & Operations',
+      department: 'Ground Operations',
+    },
+    {
+      id: 'usr-admin-1',
+      uNumber: 'U1001',
+      name: 'Duty Manager Admin',
+      email: 'admin@groundops.com',
+      als: 'ALS-1',
+      lead: 'Lead Officer',
+      role: 'admin',
+      isSuperAdmin: false,
+      team: 'Ramp Services',
+      department: 'Ground Operations',
+    },
+    {
+      id: 'usr-2',
+      uNumber: 'U1002',
+      name: 'Marcus Vance',
+      email: 'marcus.vance@groundops.com',
+      als: 'ALS-1',
+      lead: 'Ramp Lead',
+      role: 'user',
+      team: 'Ramp Services',
+      department: 'Ground Operations',
+    },
+    {
+      id: 'usr-3',
+      uNumber: 'U1003',
+      name: 'Elena Rostova',
+      email: 'elena.rostova@groundops.com',
+      als: 'ALS-2',
+      lead: 'No',
+      role: 'user',
+      team: 'Cargo & Baggage',
+      department: 'Logistics',
+    },
+    {
+      id: 'usr-4',
+      uNumber: 'U1004',
+      name: 'David Kalu',
+      email: 'david.kalu@groundops.com',
+      als: 'ALS-1',
+      lead: 'No',
+      role: 'user',
+      team: 'Flight Safety & Operations',
+      department: 'Ground Operations',
+    },
+    {
+      id: 'usr-5',
+      uNumber: 'U1005',
+      name: 'Hannah Abbott',
+      email: 'hannah.abbott@groundops.com',
+      als: 'ALS-3',
+      lead: 'No',
+      role: 'user',
+      team: 'Passenger Services',
+      department: 'Terminal Ops',
+    },
+  ];
+
+  const initialSeedConfirmations: TopicConfirmation[] = [
+    {
+      id: 'conf-usr-2-top-104',
+      userId: 'usr-2',
+      topicId: 'top-104',
+      userName: 'Marcus Vance',
+      userEmail: 'marcus.vance@groundops.com',
+      documentTitle: 'Annual Web-Based Training (WBT) - Ground Safety & De-icing 2026',
+      isLate: false,
+      wbtCertificateFileName: 'Marcus_Vance_GroundSafety_Deicing_WBT_2026.pdf',
+      wbtNotes: 'Certificate uploaded to Teams folder on Oct 12',
+      confirmedAt: '2026-10-12T14:30:00Z',
+      status: 'pending_wbt_verification',
+    },
+  ];
+
+  // Real-Time Cloud Listeners
+  useEffect(() => {
+    validateCloudConnection().then((connected) => setIsConnectedToCloud(connected));
+
+    // Subscribe to topics
+    const unsubTopics = subscribeToTopics((remoteTopics) => {
+      const validTopics = remoteTopics.filter((t) => t && t.id && t.title);
+      if (validTopics.length === 0) {
+        initialSeedTopics.forEach((t) => saveTopicToCloud(t));
+      } else {
+        setTopics(validTopics);
+      }
+    });
+
+    // Subscribe to users
+    const unsubUsers = subscribeToUsers((remoteUsers) => {
+      const validUsers = remoteUsers.filter((u) => u && u.id && u.email);
+      if (validUsers.length === 0) {
+        initialSeedUsers.forEach((u) => saveUserToCloud(u));
+      } else {
+        setUsers(validUsers);
+      }
+    });
+
+    // Subscribe to confirmations
+    const unsubConfirmations = subscribeToConfirmations((remoteConfirmations) => {
+      const validConfirmations = remoteConfirmations.filter((c) => c && c.id);
+      if (validConfirmations.length === 0) {
+        initialSeedConfirmations.forEach((c) => saveConfirmationToCloud(c));
+      } else {
+        setConfirmations(validConfirmations);
+      }
+    });
+
+    return () => {
+      unsubTopics();
+      unsubUsers();
+      unsubConfirmations();
+    };
+  }, []);
+
+  const triggerCloudBanner = (msg: string) => {
+    setCloudStatusMessage(msg);
+    setTimeout(() => setCloudStatusMessage(null), 4000);
+  };
+
   const handleLogout = async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
-    } catch {
-      // ignore
+      await signOut(auth).catch(() => null);
+    } catch (err) {
+      console.log('Firebase auth logout note:', err);
     }
     setCurrentUser(null);
-    setCurrentUserId(null);
-    setActiveTab('my-compliance');
+    setShowLoginModal(true);
+    triggerCloudBanner('Logged out successfully');
   };
 
-  // Switch active user
-  const handleSwitchUser = (user: User) => {
+  const handleLoginAsUser = (user: User) => {
     setCurrentUser(user);
-    setCurrentUserId(user.id);
-    if (user.isAdmin) {
-      setActiveTab('admin-console');
+    setShowLoginModal(false);
+    const roleTitle = user.isSuperAdmin ? 'Super Admin' : user.role === 'admin' ? 'Admin' : 'Staff Member';
+    triggerCloudBanner(`Signed in as ${user.name || user.email} (${roleTitle})`);
+  };
+
+  // User Management Handlers (Add, Amend, Delete, Password Reset, CSV Bulk Import)
+  const handleSaveUser = async (userToSave: User) => {
+    const res = await saveUserToCloud(userToSave);
+    if (res.success) {
+      triggerCloudBanner(`Staff record ${userToSave.name} (${userToSave.email}) updated in CLOUD`);
     } else {
-      setActiveTab('my-compliance');
+      alert(`Error saving user: ${res.error}`);
     }
   };
 
-
-
-  // Create new compliance topic
-  const handleCreateTopic = async (newTopicData: Omit<Topic, 'id' | 'createdAt'>) => {
-    const newTopic: Topic = {
-      ...newTopicData,
-      id: `top-${Date.now().toString(36)}`,
-      createdAt: new Date().toISOString(),
-    };
-    const updated = [newTopic, ...topics];
-    setTopics(updated);
-    saveTopics(updated, users);
-
-    // Identify assigned staff (specifically selected or group eligible)
-    const assignedStaff = users.filter(u => isUserEligibleForTopic(u, newTopic));
-
-    // Save newly created topic and staff assignments to Firebase Firestore
-    try {
-      await saveTopicToFirestore(newTopic, assignedStaff);
-      await saveTopicAssignmentsToFirestore(newTopic, assignedStaff);
-
-      // Trigger Firestore save confirmation pop-up
-      setFirestoreConfirmation({
-        title: 'New Topic & Staff Assignments Saved to Firestore',
-        recordType: 'topic_created',
-        topicTitle: newTopic.title,
-        assignedCount: assignedStaff.length,
-        collections: ['topics', 'topic_assignments'],
-        timestamp: newTopic.createdAt,
-      });
-    } catch (err) {
-      console.warn('Firebase direct topic & assignments save notice:', err);
+  const handleDeleteUser = async (userId: string) => {
+    const ok = await deleteUserFromCloud(userId);
+    if (ok) {
+      triggerCloudBanner('Staff member removed from CLOUD');
     }
   };
 
-  // Delete topic
-  const handleDeleteTopic = async (topicId: string) => {
-    const topicToDelete = topics.find(t => t.id === topicId);
-    const updatedTopics = topics.filter(t => t.id !== topicId);
-    const toDeleteConfs = confirmations.filter(c => c.topicId === topicId);
-    const updatedConfirmations = confirmations.filter(c => c.topicId !== topicId);
-    setTopics(updatedTopics);
-    setConfirmations(updatedConfirmations);
-    saveTopics(updatedTopics, users);
-    saveConfirmations(updatedConfirmations);
+  const handleResetUserPassword = async (userId: string) => {
+    const target = users.find((u) => u.id === userId);
+    if (!target) return;
 
-    // Delete topic and its compliance verifications from Firebase Firestore
-    try {
-      await deleteTopicFromFirestore(topicId);
-      for (const c of toDeleteConfs) {
-        await deleteVerificationFromFirestore(c.id).catch(() => null);
-      }
-      setFirestoreConfirmation({
-        title: 'Topic & Assignments Removed from Firestore',
-        recordType: 'topic_deleted',
-        topicTitle: topicToDelete?.title || topicId,
-        collections: ['topics', 'topic_assignments'],
-      });
-    } catch (err) {
-      console.warn('Firebase topic deletion notice:', err);
-    }
-  };
-
-  // Add staff member
-  const handleAddStaff = async (newStaff: User) => {
-    const updated = [...users, newStaff];
-    setUsers(updated);
-    saveUsers(updated);
-    try {
-      await saveUserToFirestore(newStaff);
-      fetch('/api/auth/admin/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'sync_roster', roster: updated }),
-      }).catch(() => null);
-      setFirestoreConfirmation({
-        title: 'Staff Member Saved to Firestore',
-        recordType: 'roster_sync',
-        userName: newStaff.name,
-        uNumber: newStaff.uNumber,
-        collections: ['users'],
-        statusText: `${newStaff.name} (${newStaff.uNumber}) was saved to Firestore station roster. Zero browser storage.`,
-      });
-    } catch (err) {
-      console.warn('Firebase staff save notice:', err);
-    }
-  };
-
-  // Amend / Update staff member
-  const handleUpdateStaff = async (updatedStaff: User) => {
-    const updated = users.map(u => (u.id === updatedStaff.id ? updatedStaff : u));
-    setUsers(updated);
-    saveUsers(updated);
-    if (currentUser && currentUser.id === updatedStaff.id) {
-      setCurrentUser(updatedStaff);
-    }
-    try {
-      await saveUserToFirestore(updatedStaff);
-      fetch('/api/auth/admin/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'sync_roster', roster: updated }),
-      }).catch(() => null);
-      setFirestoreConfirmation({
-        title: 'Staff Record Updated in Firestore',
-        recordType: 'roster_sync',
-        userName: updatedStaff.name,
-        uNumber: updatedStaff.uNumber,
-        collections: ['users'],
-        statusText: `${updatedStaff.name}'s profile and qualifications were saved to Firestore. Zero browser storage.`,
-      });
-    } catch (err) {
-      console.warn('Firebase staff update notice:', err);
-    }
-  };
-
-  // Delete staff member
-  const handleDeleteStaff = async (userId: string) => {
-    const staffToDelete = users.find(u => u.id === userId);
-    const updated = users.filter(u => u.id !== userId);
-    setUsers(updated);
-    saveUsers(updated);
-    // Clean up confirmations for this user
-    const updatedConfirmations = confirmations.filter(c => c.userId !== userId);
-    setConfirmations(updatedConfirmations);
-    saveConfirmations(updatedConfirmations);
-    try {
-      await deleteUserFromFirestore(userId);
-      setFirestoreConfirmation({
-        title: 'Staff Member Removed from Firestore',
-        recordType: 'roster_sync',
-        userName: staffToDelete?.name || userId,
-        collections: ['users'],
-        statusText: `${staffToDelete?.name || userId} was removed from the Firestore database. Zero browser storage.`,
-      });
-    } catch (err) {
-      console.warn('Firebase staff deletion notice:', err);
-    }
-  };
-
-  // Bulk update / import staff
-  const handleBulkUpdateStaff = async (updatedList: User[]) => {
-    setUsers(updatedList);
-    saveUsers(updatedList);
-    if (currentUser) {
-      const updatedCurrent = updatedList.find(u => u.id === currentUser.id);
-      if (updatedCurrent) {
-        setCurrentUser(updatedCurrent);
-      }
-    }
-    try {
-      await saveAllUsersToFirestore(updatedList);
-      fetch('/api/auth/admin/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'sync_roster', roster: updatedList }),
-      }).catch(() => null);
-      setFirestoreConfirmation({
-        title: 'Staff Roster Synchronized with Firestore',
-        recordType: 'roster_sync',
-        assignedCount: updatedList.length,
-        collections: ['users'],
-        statusText: `All ${updatedList.length} staff records were saved to Firestore. Zero browser storage.`,
-      });
-    } catch (err) {
-      console.warn('Firebase bulk staff save notice:', err);
-    }
-  };
-
-  // Record user acknowledgment / Read and sign (Requirement 10)
-  const handleConfirmTopic = async (topicId: string, signatureText: string, lateReason?: string) => {
-    if (!currentUser) return;
-
-    const topic = topics.find(t => t.id === topicId);
-    const existingIndex = confirmations.findIndex(c => c.topicId === topicId && c.userId === currentUser.id);
-
-    const todayStr = new Date().toISOString().split('T')[0];
-    const isPastDeadline = Boolean(topic && topic.dueDate && topic.dueDate < todayStr);
-    const isWbtTopic = Boolean(topic && (topic.category === 'WBT' || topic.type === 'WBT' || topic.title.toLowerCase().includes('wbt')));
-    const status = isWbtTopic ? 'pending_wbt_verification' : 'confirmed';
-
-    const newConf: TopicConfirmation = {
-      id: `conf-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      topicId,
-      documentId: topicId,
-      documentTitle: topic ? topic.title : topicId,
-      documentVersion: topic?.version || 'v1.0',
-      userId: currentUser.id,
-      userEmail: currentUser.email,
-      userName: currentUser.name,
-      confirmedAt: new Date().toISOString(),
-      status,
-      signatureText: currentUser.name,
-      ipAddress: '10.240.12.88',
-      lateReason: lateReason?.trim() || undefined,
-      lateRemark: lateReason?.trim() || undefined,
-      isLate: isPastDeadline,
-      adminReviewNote: isPastDeadline && lateReason?.trim() ? `Late acknowledgment justification: ${lateReason.trim()}` : undefined,
+    const resetUser: User = {
+      ...target,
+      password: '',
+      isPasswordSet: false,
     };
 
-    let updated: TopicConfirmation[];
-    if (existingIndex >= 0) {
-      // Replaced old confirmation (e.g. after re-sign due to version change)
-      updated = [...confirmations];
-      updated[existingIndex] = newConf;
-    } else {
-      updated = [newConf, ...confirmations];
-    }
-
-    setConfirmations(updated);
-    saveConfirmations(updated);
-
-    // Save compliance verification record directly to Firebase Firestore
-    try {
-      await saveVerificationToFirestore(newConf);
-      // Trigger confirmation pop-up
-      const isWbt = isWbtTopic;
-      setFirestoreConfirmation({
-        title: isWbt 
-          ? 'WBT Acknowledgment Submitted - Please Upload Certificate' 
-          : (isPastDeadline ? 'Overdue Compliance Acknowledgment Saved to Firestore' : 'Compliance Acknowledgment Saved to Firestore'),
-        recordType: 'acknowledgment',
-        topicTitle: topic ? topic.title : topicId,
-        userName: currentUser.name,
-        uNumber: currentUser.uNumber,
-        collections: ['compliance_verifications', 'topic_assignments'],
-        timestamp: newConf.confirmedAt,
-        statusText: isWbt
-          ? `Acknowledgment recorded. You must now upload your certificate of participation to Teams for admin verification to complete the process. Status is currently: Pending Verification.`
-          : (isPastDeadline
-            ? `Overdue directive "${topic?.title || topicId}" was acknowledged with mandatory reason for delay ("${lateReason?.trim()}"). Permanently saved to Cloud Firestore. Zero browser storage.`
-            : `Acknowledgment and digital signature for "${topic?.title || topicId}" were permanently saved to Cloud Firestore. Zero browser storage.`),
-      });
-    } catch (err) {
-      console.warn('Firebase direct verification save notice:', err);
+    const res = await saveUserToCloud(resetUser);
+    if (res.success) {
+      triggerCloudBanner(`Password reset to First-Time Setup flow for ${target.name}`);
     }
   };
 
-  // Close topic for acknowledgement (Options: mark remaining as participated OR mark missing pax as not participated)
-  const handleCloseTopic = async (topicId: string, option: TopicCloseOption = 'mark_participated') => {
-    const topicToClose = topics.find(t => t.id === topicId);
-    if (!topicToClose) return;
+  const handleUpdateUserPassword = async (userId: string, newPass: string) => {
+    const target = users.find((u) => u.id === userId);
+    if (!target) return;
 
-    const nowIso = new Date().toISOString();
-    const reasonText =
-      option === 'mark_participated'
-        ? 'Topic closed for acknowledgement by Administrator. Remaining staff marked as participated.'
-        : 'Topic closed for acknowledgement by Administrator. Missing pax marked as not participated.';
-
-    const closedTopic: Topic = {
-      ...topicToClose,
-      isClosed: true,
-      closedAt: nowIso,
-      closedBy: currentUser?.email || 'Administrator',
-      closedReason: reasonText,
-      closedOption: option,
+    const updatedUser: User = {
+      ...target,
+      password: newPass,
+      isPasswordSet: true,
     };
 
-    const updatedTopics = topics.map(t => (t.id === topicId ? closedTopic : t));
-    setTopics(updatedTopics);
-    saveTopics(updatedTopics, users);
+    const res = await saveUserToCloud(updatedUser);
+    if (res.success) {
+      triggerCloudBanner(`Password saved successfully for ${target.name}`);
+    }
+  };
 
-    // Identify all eligible staff for this topic who do not already have a confirmed verification
-    const eligibleStaff = users.filter(u => isUserEligibleForTopic(u, closedTopic));
-    const unconfirmedStaff = eligibleStaff.filter(
-      u => !confirmations.some(c => c.topicId === topicId && c.userId === u.id && c.status === 'confirmed')
-    );
+  const handleBulkImportUsers = async (importedList: Omit<User, 'id'>[]) => {
+    let count = 0;
+    for (const item of importedList) {
+      const normUNum = (item.uNumber || '').trim().toUpperCase();
+      const normEmail = (item.email || '').trim().toLowerCase();
 
-    const isParticipated = option === 'mark_participated';
-    const closeoutVerifications: TopicConfirmation[] = unconfirmedStaff.map(staff => ({
-      id: `conf-${topicId}-${staff.id}`,
-      topicId: topicId,
-      documentId: topicId,
-      documentTitle: closedTopic.title,
-      documentVersion: closedTopic.version || 'v1.0',
-      userId: staff.id,
-      userEmail: staff.email,
-      userName: staff.name,
-      confirmedAt: nowIso,
-      status: isParticipated ? 'confirmed' : 'not_participated',
-      signatureText: isParticipated
-        ? 'Participation Verified by Admin (Closed Session)'
-        : 'Not Participated (Admin Closed Session)',
-      adminReviewNote: isParticipated
-        ? 'Participation verified & confirmed upon admin closure'
-        : 'Marked as Not Participated upon admin session closeout',
-      reviewedBy: currentUser?.email || 'Administrator',
-      reviewedAt: nowIso,
-    }));
-
-    const existingOtherConfs = confirmations.filter(
-      c => !closeoutVerifications.some(ac => ac.topicId === c.topicId && ac.userId === c.userId)
-    );
-    const updatedConfirmations = [...closeoutVerifications, ...existingOtherConfs];
-    setConfirmations(updatedConfirmations);
-    saveConfirmations(updatedConfirmations);
-
-    try {
-      await closeTopicForAcknowledgementInFirestore(
-        topicId,
-        currentUser?.email || 'Administrator',
-        unconfirmedStaff,
-        option
+      // Check if user already exists by U Number or Email
+      const existingUser = users.find(
+        (u) =>
+          (normUNum && u.uNumber && u.uNumber.trim().toUpperCase() === normUNum) ||
+          (normEmail && u.email && u.email.trim().toLowerCase() === normEmail)
       );
 
-      const statusDesc =
-        option === 'mark_participated'
-          ? `"${closedTopic.title}" was closed for acknowledgement. All ${eligibleStaff.length} participant records were verified and permanently saved to Cloud Firestore.`
-          : `"${closedTopic.title}" was closed for acknowledgement. ${unconfirmedStaff.length} missing participant(s) were recorded as Not Participated in Cloud Firestore.`;
-
-      setFirestoreConfirmation({
-        title: 'Topic Closed in Firestore',
-        recordType: 'topic_closed',
-        topicTitle: closedTopic.title,
-        assignedCount: eligibleStaff.length,
-        collections: ['topics', 'compliance_verifications', 'topic_assignments'],
-        timestamp: nowIso,
-        statusText: statusDesc,
-      });
-    } catch (err) {
-      console.warn('Firebase error closing topic for acknowledgement:', err);
-    }
-  };
-
-  // Reopen topic for acknowledgement
-  const handleReopenTopic = async (topicId: string) => {
-    const topicToReopen = topics.find(t => t.id === topicId);
-    if (!topicToReopen) return;
-
-    const reopenedTopic: Topic = {
-      ...topicToReopen,
-      isClosed: false,
-      closedAt: undefined,
-      closedBy: undefined,
-      closedReason: undefined,
-      closedOption: undefined,
-    };
-
-    const updatedTopics = topics.map(t => (t.id === topicId ? reopenedTopic : t));
-    setTopics(updatedTopics);
-    saveTopics(updatedTopics, users);
-
-    // Remove any verifications generated during admin closeout so staff can sign authentically
-    const cleanedConfirmations = confirmations.filter(c => {
-      if (c.topicId !== topicId) return true;
-      if (c.status === 'not_participated') return false;
-      if (c.signatureText === 'Participation Verified by Admin (Closed Session)') return false;
-      if (c.signatureText === 'Not Participated (Admin Closed Session)') return false;
-      return true;
-    });
-
-    setConfirmations(cleanedConfirmations);
-    saveConfirmations(cleanedConfirmations);
-
-    try {
-      await reopenTopicInFirestore(topicId, currentUser?.email || 'Administrator');
-
-      setFirestoreConfirmation({
-        title: 'Topic Reopened for Acknowledgement',
-        recordType: 'topic_reopened',
-        topicTitle: reopenedTopic.title,
-        collections: ['topics', 'compliance_verifications', 'topic_assignments'],
-        timestamp: new Date().toISOString(),
-        statusText: `"${reopenedTopic.title}" has been successfully reopened for acknowledgement. The directive is active again for assigned staff.`,
-      });
-    } catch (err) {
-      console.warn('Firebase error reopening topic for acknowledgement:', err);
-    }
-  };
-
-  // Admin review handler for late approval & WBT certificate verification (Accept / Reject)
-  const handleUpdateConfirmation = async (confirmationId: string, newStatus: 'confirmed' | 'rejected', reviewNote?: string) => {
-    let targetConf: TopicConfirmation | undefined;
-    const updated = confirmations.map(c => {
-      if (c.id === confirmationId) {
-        const revised: TopicConfirmation = {
-          ...c,
-          status: newStatus,
-          reviewedBy: currentUser?.email || 'SuperAdmin',
-          reviewedAt: new Date().toISOString(),
-          adminReviewNote: reviewNote,
-
-        };
-        targetConf = revised;
-        return revised;
-      }
-      return c;
-    });
-    setConfirmations(updated);
-    saveConfirmations(updated);
-
-    // Persist reviewed verification update to Firebase Firestore
-    if (targetConf) {
-      try {
-        await saveVerificationToFirestore(targetConf);
-        setFirestoreConfirmation({
-          title: `Verification Review (${newStatus.toUpperCase()}) Saved to Firestore`,
-          recordType: 'admin_review',
-          topicTitle: targetConf.documentTitle || targetConf.topicId,
-          userName: targetConf.userName,
-          collections: ['compliance_verifications'],
-          timestamp: targetConf.reviewedAt,
-        });
-      } catch (err) {
-        console.warn('Firebase direct verification update notice:', err);
-      }
-    }
-  };
-
-  // Import Topic Participation Matrix (Excel / CSV / Provided Sheet)
-  const handleImportTopicParticipation = async (result: TopicParticipationImportResult) => {
-    // 1. Merge users: Add newly discovered staff to station roster with canonical IDs
-    const userMap = new Map<string, User>();
-    users.forEach(u => {
-      userMap.set(u.uNumber.toUpperCase(), u);
-      if (u.email) userMap.set(u.email.toLowerCase(), u);
-      userMap.set(u.id, u);
-    });
-
-    const mergedUsers = [...users];
-    result.users.forEach(newU => {
-      const canonicalId = resolveStaffUserId(newU.uNumber, newU.email, newU.name, mergedUsers);
-      const userWithCanonicalId: User = {
-        ...newU,
-        id: canonicalId,
+      const userToSave: User = {
+        ...item,
+        id: existingUser ? existingUser.id : `usr-import-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        role: existingUser ? existingUser.role : item.role || 'user',
+        isSuperAdmin: existingUser ? !!existingUser.isSuperAdmin : false,
+        password: existingUser ? existingUser.password : '',
+        isPasswordSet: existingUser ? existingUser.isPasswordSet : false,
       };
 
-      const key = newU.uNumber.toUpperCase();
-      if (!userMap.has(key) && !userMap.has(canonicalId)) {
-        userMap.set(key, userWithCanonicalId);
-        userMap.set(canonicalId, userWithCanonicalId);
-        if (newU.email) userMap.set(newU.email.toLowerCase(), userWithCanonicalId);
-        mergedUsers.push(userWithCanonicalId);
+      const res = await saveUserToCloud(userToSave);
+      if (res.success) count++;
+    }
+    triggerCloudBanner(`Successfully imported/updated ${count} staff records in CLOUD`);
+  };
+
+  const handleImportTopicParticipation = async (result: any) => {
+    let count = 0;
+    if (result) {
+      // 1. Save auto-created users from import
+      if (Array.isArray(result.newUsersToSave)) {
+        for (const newUser of result.newUsersToSave) {
+          await saveUserToCloud(newUser);
+        }
       }
-    });
 
-    // 2. Merge topics: Deduplicate by normalized directive title so there is strictly ONE row per topic
-    const titleToCanonicalTopic = new Map<string, Topic>();
-    const aliasToCanonicalId = new Map<string, string>();
-
-    // Index existing topics
-    topics.forEach(t => {
-      const directiveKey = normalizeTopicDirectiveKey(t.title);
-      if (!titleToCanonicalTopic.has(directiveKey)) {
-        titleToCanonicalTopic.set(directiveKey, { ...t });
-        aliasToCanonicalId.set(t.id, t.id);
-        aliasToCanonicalId.set(directiveKey, t.id);
-      } else {
-        const canonical = titleToCanonicalTopic.get(directiveKey)!;
-        aliasToCanonicalId.set(t.id, canonical.id);
-        aliasToCanonicalId.set(directiveKey, canonical.id);
-        const combined = Array.from(new Set([...(canonical.assignedUserIds || []), ...(t.assignedUserIds || [])]));
-        canonical.assignedUserIds = combined;
-        if (t.targetGroup === 'ALL' || canonical.targetGroup === 'ALL') canonical.targetGroup = 'ALL';
-        else if (t.targetGroup === 'ALS_AND_LEAD' || canonical.targetGroup === 'ALS_AND_LEAD') canonical.targetGroup = 'ALS_AND_LEAD';
+      // 2. Save auto-created topics from import
+      if (Array.isArray(result.newTopicsToSave)) {
+        for (const newTopic of result.newTopicsToSave) {
+          await saveTopicToCloud(newTopic);
+        }
       }
-    });
 
-    // Merge incoming new topics
-    result.topics.forEach(newTopic => {
-      const directiveKey = normalizeTopicDirectiveKey(newTopic.title);
-      if (titleToCanonicalTopic.has(directiveKey)) {
-        const canonical = titleToCanonicalTopic.get(directiveKey)!;
-        aliasToCanonicalId.set(newTopic.id, canonical.id);
-        aliasToCanonicalId.set(directiveKey, canonical.id);
-
-        // Normalize assignedUserIds to canonical IDs
-        const canonicalAssigned = (newTopic.assignedUserIds || []).map(rawId => {
-          const matchedU = mergedUsers.find(u => u.id === rawId || rawId.toLowerCase().includes(u.uNumber.toLowerCase().replace(/^u/i, '')));
-          return matchedU ? matchedU.id : rawId;
-        });
-
-        const combinedAssigned = Array.from(
-          new Set([...(canonical.assignedUserIds || []), ...canonicalAssigned])
-        );
-        canonical.assignedUserIds = combinedAssigned;
-        if (newTopic.targetGroup === 'ALL' || canonical.targetGroup === 'ALL') canonical.targetGroup = 'ALL';
-        else if (newTopic.targetGroup === 'ALS_AND_LEAD' || canonical.targetGroup === 'ALS_AND_LEAD') canonical.targetGroup = 'ALS_AND_LEAD';
-      } else {
-        // Normalize assignedUserIds
-        const canonicalAssigned = (newTopic.assignedUserIds || []).map(rawId => {
-          const matchedU = mergedUsers.find(u => u.id === rawId || rawId.toLowerCase().includes(u.uNumber.toLowerCase().replace(/^u/i, '')));
-          return matchedU ? matchedU.id : rawId;
-        });
-
-        const topicWithCanonicalAssigned = {
-          ...newTopic,
-          assignedUserIds: canonicalAssigned,
-        };
-
-        titleToCanonicalTopic.set(directiveKey, topicWithCanonicalAssigned);
-        aliasToCanonicalId.set(newTopic.id, newTopic.id);
-        aliasToCanonicalId.set(directiveKey, newTopic.id);
+      // 3. Save topic participation sign-offs
+      if (Array.isArray(result.records)) {
+        for (const rec of result.records) {
+          const confirmationToSave: TopicConfirmation = {
+            id: `conf-${rec.userId}-${rec.topicId}`,
+            userId: rec.userId,
+            topicId: rec.topicId,
+            userName: rec.userName,
+            userEmail: rec.userEmail,
+            documentTitle: rec.topicTitle,
+            confirmedAt: rec.confirmedAt || new Date().toISOString(),
+            status: rec.status || 'confirmed',
+            wbtNotes: rec.notes || 'Imported via CSV/Excel Bulk Import',
+          };
+          const saveRes = await saveConfirmationToCloud(confirmationToSave);
+          if (saveRes.success) count++;
+        }
       }
-    });
+    }
+    triggerCloudBanner(`Successfully imported ${count} topic participation sign-offs to CLOUD`);
+  };
 
-    const mergedTopics = Array.from(titleToCanonicalTopic.values());
+  // 3-step Cloud Verification Handlers for Topics
+  const handleCreateTopic = async (newTopicData: Omit<Topic, 'id' | 'createdAt'>) => {
+    const topicToSave: Topic = {
+      ...newTopicData,
+      id: `top-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+    };
 
-    // 3. Merge confirmations with remapped canonical topic IDs and canonical user IDs
-    const confMap = new Map<string, TopicConfirmation>();
-
-    confirmations.forEach(c => {
-      const topicDirectiveKey = c.documentTitle ? normalizeTopicDirectiveKey(c.documentTitle) : '';
-      const canonicalTopicId = aliasToCanonicalId.get(c.topicId) || (topicDirectiveKey && aliasToCanonicalId.get(topicDirectiveKey)) || c.topicId;
-      
-      const matchedUser = mergedUsers.find(u => isConfirmationForStaff(c, u));
-      const canonicalUserId = matchedUser ? matchedUser.id : resolveStaffUserId(c.uNumber || '', c.userEmail, c.userName, mergedUsers);
-
-      confMap.set(`${canonicalTopicId}_${canonicalUserId}`, {
-        ...c,
-        topicId: canonicalTopicId,
-        userId: canonicalUserId,
-      });
-    });
-
-    result.confirmations.forEach(newConf => {
-      const topicDirectiveKey = newConf.documentTitle ? normalizeTopicDirectiveKey(newConf.documentTitle) : '';
-      const canonicalTopicId = aliasToCanonicalId.get(newConf.topicId) || (topicDirectiveKey && aliasToCanonicalId.get(topicDirectiveKey)) || newConf.topicId;
-
-      const matchedUser = mergedUsers.find(u => isConfirmationForStaff(newConf, u));
-      const canonicalUserId = matchedUser ? matchedUser.id : resolveStaffUserId(newConf.uNumber || '', newConf.userEmail, newConf.userName, mergedUsers);
-
-      const key = `${canonicalTopicId}_${canonicalUserId}`;
-      const existing = confMap.get(key);
-
-      if (!existing || existing.status !== 'confirmed' || newConf.status === 'confirmed') {
-        confMap.set(key, {
-          ...newConf,
-          topicId: canonicalTopicId,
-          userId: canonicalUserId,
-        });
-      }
-    });
-
-    const mergedConfirmations = Array.from(confMap.values());
-
-    // Update in-memory state
-    setUsers(mergedUsers);
-    setTopics(mergedTopics);
-    setConfirmations(mergedConfirmations);
-    saveUsers(mergedUsers);
-    saveTopics(mergedTopics, mergedUsers);
-    saveConfirmations(mergedConfirmations);
-
-    // Save directly to Cloud Firestore in batched writes
-    try {
-      await saveAllUsersToFirestore(mergedUsers);
-      await saveAllTopicsAndAssignmentsToFirestore(mergedTopics, mergedUsers);
-      await saveAllVerificationsToFirestore(mergedConfirmations);
-
-      setFirestoreConfirmation({
-        title: 'Topic Participation Imported & Saved to Firestore',
-        recordType: 'topic_created',
-        topicTitle: `${result.stats.totalTopics} Topics (${result.stats.totalConfirmed} Confirmed, ${result.stats.totalPending} Pending)`,
-        assignedCount: result.stats.totalStaff,
-        collections: ['topics', 'topic_assignments', 'compliance_verifications', 'users'],
-        timestamp: new Date().toISOString(),
-        statusText: `Successfully imported ${result.stats.totalRows} participation records across ${result.stats.totalTopics} topics. ${result.stats.totalConfirmed} verified confirmations and all assignments were permanently committed to Cloud Firestore database ai-studio-readsigncomplian-4208e69d-667a-430c-961f-7e6d635d1298. Zero browser storage.`,
-      });
-    } catch (err) {
-      console.warn('Firebase batch import save notice:', err);
+    const res = await saveTopicToCloud(topicToSave);
+    if (res.success) {
+      triggerCloudBanner(res.message);
+    } else {
+      alert(`Cloud verification failed: ${res.error}`);
     }
   };
 
-  if (!mounted || sessionChecking) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="w-8 h-8 border-3 border-[#0078D4] border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    );
-  }
+  const handleDeleteTopic = async (topicId: string) => {
+    const targetTopic = topics.find((t) => t.id === topicId);
+    const ok = await deleteTopicFromCloud(topicId, targetTopic?.title);
+    if (ok) {
+      triggerCloudBanner('Successfully removed from CLOUD');
+    }
+  };
 
-  // If not logged in, display Google login
-  if (!currentUser) {
-    return (
-      <GoogleLogin
-        onLoginSuccess={handleLoginSuccess}
-        rosterUsers={users}
-      />
-    );
-  }
+  const handleCloseTopicForAcknowledgement = async (topicId: string, option: any) => {
+    const res = await updateTopicStatusInCloud(topicId, 'closed', option);
+    if (res.success) {
+      triggerCloudBanner(res.message);
+    }
+  };
+
+  const handleReopenTopicForAcknowledgement = async (topicId: string) => {
+    const res = await updateTopicStatusInCloud(topicId, 'active');
+    if (res.success) {
+      triggerCloudBanner(res.message);
+    }
+  };
+
+  // Staff Sign-off Action with WBT Support and 3-Step Cloud Verification
+  const handleStaffConfirmTopic = async (
+    topicId: string,
+    isLate: boolean,
+    lateReason?: string,
+    wbtDetails?: { certificateFileName?: string; notes?: string }
+  ) => {
+    if (!currentUser) return;
+
+    const topic = topics.find((t) => t.id === topicId);
+    const isWbtTopic = topic?.type === 'WBT' || topic?.type === 'Web-Based Training' || !!wbtDetails;
+
+    const newConfirmation: TopicConfirmation = {
+      id: `conf-${currentUser.id}-${topicId}`,
+      userId: currentUser.id,
+      topicId: topicId,
+      userName: currentUser.name || currentUser.email,
+      userEmail: currentUser.email,
+      documentTitle: topic?.title || 'Directive',
+      isLate: isLate,
+      lateReason: lateReason || '',
+      wbtCertificateFileName: wbtDetails?.certificateFileName || '',
+      wbtNotes: wbtDetails?.notes || '',
+      confirmedAt: new Date().toISOString(),
+      status: isWbtTopic ? 'pending_wbt_verification' : 'confirmed',
+    };
+
+    const res = await saveConfirmationToCloud(newConfirmation);
+    if (res.success) {
+      triggerCloudBanner(
+        isWbtTopic
+          ? 'WBT certificate uploaded to Teams & submitted for Super Admin verification'
+          : 'Compliance sign-off uploaded to CLOUD'
+      );
+    } else {
+      alert(`Sign-off failed: ${res.error}`);
+    }
+  };
+
+  // Super Admin Verification Action for WBT Confirmations
+  const handleUpdateConfirmation = async (
+    confirmationId: string,
+    newStatus: 'confirmed' | 'rejected',
+    reviewNote?: string
+  ) => {
+    const existingConf = confirmations.find((c) => c.id === confirmationId);
+    if (!existingConf) return;
+
+    const updatedConf: TopicConfirmation = {
+      ...existingConf,
+      status: newStatus,
+      verifiedBy: currentUser?.email || 'sarah.jenkins@groundops.com',
+      verifiedAt: new Date().toISOString(),
+      wbtNotes: reviewNote || existingConf.wbtNotes,
+    };
+
+    const res = await saveConfirmationToCloud(updatedConf);
+    if (res.success) {
+      triggerCloudBanner(
+        newStatus === 'confirmed'
+          ? 'WBT Certificate Verified & Confirmed in CLOUD'
+          : 'WBT Certificate Rejected in CLOUD'
+      );
+    }
+  };
+
+  const availableUsers = (users.length > 0 ? users : initialSeedUsers).filter(
+    (u) => u && (u.name || u.email)
+  );
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col text-slate-800">
-      {/* Top Navigation conforming to Top Bar Contract */}
-      <TopBar
-        currentUser={currentUser}
-        activeTab={activeTab}
-        onTabChange={tab => setActiveTab(tab)}
-        onLogout={handleLogout}
-      />
+    <main className="min-h-screen bg-slate-100 text-slate-900 pb-12 w-full overflow-x-hidden">
+      {/* Real-Time Cloud Status & Header Bar */}
+      <div className="bg-slate-900 text-white border-b border-slate-800 px-4 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs font-medium sticky top-0 z-40 backdrop-blur-md bg-slate-900/95">
+        <div className="flex items-center gap-2">
+          <Cloud className="w-4 h-4 text-sky-400 animate-pulse" />
+          <span className="font-semibold text-slate-200">Storage Mode:</span>
+          <span className="px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-400/30">
+            Memory-Only Cloud Firestore
+          </span>
+        </div>
 
-      {/* Main Content Area */}
-      <main className="flex-1">
-        {activeTab === 'my-compliance' && !currentUser.isAdmin && (
-          <UserDashboard
-            currentUser={currentUser}
-            topics={topics}
-            confirmations={confirmations}
-            onConfirmTopic={handleConfirmTopic}
-            onOpenAdminConsole={undefined}
-          />
-        )}
-
-        {(activeTab === 'admin-console' || (activeTab === 'my-compliance' && currentUser.isAdmin)) && (
-          <AdminConsole
-            users={users}
-            topics={topics}
-            confirmations={confirmations}
-            currentUser={currentUser}
-            onCreateTopic={handleCreateTopic}
-            onDeleteTopic={handleDeleteTopic}
-            onCloseTopicForAcknowledgement={handleCloseTopic}
-            onReopenTopicForAcknowledgement={handleReopenTopic}
-            onUpdateConfirmation={handleUpdateConfirmation}
-            onNavigateToRoster={() => setActiveTab('staff-roster')}
-            onImportTopicParticipation={handleImportTopicParticipation}
-            onShowFirestoreConfirmation={setFirestoreConfirmation}
-          />
-        )}
-
-        {activeTab === 'staff-roster' && (
-          <StaffRosterView
-            users={users}
-            topics={topics}
-            confirmations={confirmations}
-            currentUser={currentUser}
-            onSwitchUser={handleSwitchUser}
-            onAddStaff={handleAddStaff}
-            onUpdateStaff={handleUpdateStaff}
-            onDeleteStaff={handleDeleteStaff}
-            onBulkUpdateStaff={handleBulkUpdateStaff}
-          />
-        )}
-
-        {activeTab === 'reports' && (
-          <ReportsView
-            users={users}
-            topics={topics}
-            confirmations={confirmations}
-          />
-        )}
-      </main>
-
-      {/* Quiet Corporate Footer with system reset capability */}
-      <footer className="bg-white border-t border-slate-200 py-4 px-6 text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span>Read & Sign Compliance Management System</span>
-            <span aria-hidden="true">·</span>
-            <span>M365 Single Sign-On Integrated</span>
+        <div className="flex items-center gap-3">
+          <div className="hidden md:flex items-center gap-1.5 text-emerald-400">
+            <Wifi className="w-3.5 h-3.5" />
+            <span>Real-time Sync</span>
+          </div>
+          <div className="hidden md:flex items-center gap-1.5 text-slate-300">
+            <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
+            <span>3-Step Server Verified</span>
           </div>
 
-          <div className="flex items-center gap-4">
-            <span className="font-mono text-[11px] text-slate-400">
-              Station Roster: {users.length} Staff
-            </span>
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span>Firestore Connected · Browser Storage Disabled</span>
-            </span>
+          {/* User Account & Explicit Log Out Option */}
+          {currentUser ? (
+            <div className="flex items-center gap-2 bg-slate-800/90 px-3 py-1 rounded-full border border-slate-700 shadow-xs">
+              <div
+                className={`w-5 h-5 rounded-full text-white font-bold text-[10px] flex items-center justify-center ${
+                  currentUser.isSuperAdmin
+                    ? 'bg-purple-600'
+                    : currentUser.role === 'admin'
+                    ? 'bg-blue-600'
+                    : 'bg-emerald-600'
+                }`}
+              >
+                {(currentUser.name || currentUser.email || 'U').slice(0, 1).toUpperCase()}
+              </div>
+              <span className="font-semibold text-slate-200 text-xs max-w-[130px] truncate">
+                {currentUser.name || currentUser.email}
+              </span>
+              <span
+                className={`text-[10px] px-2 py-0.2 rounded font-extrabold uppercase ${
+                  currentUser.isSuperAdmin
+                    ? 'bg-purple-500/30 text-purple-300 border border-purple-400/30'
+                    : currentUser.role === 'admin'
+                    ? 'bg-blue-500/30 text-blue-300 border border-blue-400/30'
+                    : 'bg-emerald-500/30 text-emerald-300 border border-emerald-400/30'
+                }`}
+              >
+                {currentUser.isSuperAdmin ? 'Super Admin' : currentUser.role === 'admin' ? 'Admin' : 'Staff'}
+              </span>
+
+              <button
+                onClick={handleLogout}
+                title="Log Out of Portal"
+                className="ml-1 px-2 py-1 hover:bg-slate-700/80 rounded-md text-slate-300 hover:text-red-400 transition-colors flex items-center gap-1 text-[11px] font-bold cursor-pointer"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Log Out</span>
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowLoginModal(true)}
+              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-full text-xs font-bold flex items-center gap-1.5 transition-all shadow-md shadow-blue-500/20 cursor-pointer"
+            >
+              <LogIn className="w-3.5 h-3.5" />
+              <span>Log In</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Cloud Verification Banner */}
+      {cloudStatusMessage && (
+        <div className="fixed bottom-6 right-6 z-50 bg-emerald-600 text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 border border-emerald-400/40 animate-in slide-in-from-bottom duration-300">
+          <CheckCircle2 className="w-5 h-5 text-emerald-200" />
+          <div>
+            <p className="font-bold text-sm">{cloudStatusMessage}</p>
+            <p className="text-xs text-emerald-100">Verified via live Cloud Firestore query match</p>
           </div>
         </div>
-      </footer>
-
-      {/* Pop-up confirmation when saving topics, assignments, or acknowledgments to Firestore */}
-      {firestoreConfirmation && (
-        <FirestoreSaveModal
-          key={firestoreConfirmation.timestamp || firestoreConfirmation.title}
-          confirmation={firestoreConfirmation}
-          onClose={handleCloseFirestoreConfirmation}
-        />
       )}
 
+      {/* Main View Router */}
+      {currentUser ? (
+        currentUser.role === 'admin' || currentUser.isSuperAdmin ? (
+          <AdminConsole
+            currentUser={currentUser}
+            topics={topics}
+            users={availableUsers}
+            confirmations={confirmations}
+            onCreateTopic={handleCreateTopic}
+            onDeleteTopic={handleDeleteTopic}
+            onCloseTopicForAcknowledgement={handleCloseTopicForAcknowledgement}
+            onReopenTopicForAcknowledgement={handleReopenTopicForAcknowledgement}
+            onUpdateConfirmation={handleUpdateConfirmation}
+            onSaveUser={handleSaveUser}
+            onDeleteUser={handleDeleteUser}
+            onResetUserPassword={handleResetUserPassword}
+            onBulkImportUsers={handleBulkImportUsers}
+            onImportTopicParticipation={handleImportTopicParticipation}
+          />
+        ) : (
+          <StaffPortal
+            currentUser={currentUser}
+            topics={topics}
+            confirmations={confirmations}
+            onConfirmTopic={handleStaffConfirmTopic}
+            onLogout={handleLogout}
+          />
+        )
+      ) : (
+        <div className="max-w-2xl mx-auto my-8 px-4 space-y-6">
+          <AppBanner />
+          <div className="bg-[#000d21] rounded-2xl shadow-xl border border-blue-900/60 p-6 text-center space-y-4 text-white">
+            <p className="text-slate-200 text-sm font-medium">
+              Welcome to <strong>Read X Compliance</strong> (DELSM - Lufthansa Group Delhi). Please log in to access your staff directives, WBT modules, or administrator portal.
+            </p>
+            <button
+              onClick={() => setShowLoginModal(true)}
+              className="w-full py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-sm rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer border border-blue-400/30"
+            >
+              <LogIn className="w-4 h-4" />
+              <span>Log In &bull; Read X Compliance</span>
+            </button>
+          </div>
+        </div>
+      )}
 
-    </div>
+      {/* Login Portal Modal */}
+      <LoginPortalModal
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        users={availableUsers}
+        onLogin={handleLoginAsUser}
+        onUpdateUserPassword={handleUpdateUserPassword}
+      />
+    </main>
   );
 }

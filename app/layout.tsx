@@ -1,25 +1,21 @@
-import type {Metadata} from 'next';
-import './globals.css'; // Global styles
+import './globals.css';
+import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Read & Sign Compliance Management System | M365 Entra ID',
-  description: 'Enterprise M365-integrated compliance platform for acknowledging and tracking Read & Sign topics across ALL, ALS, and Lead personnel.',
-  openGraph: {
-    title: 'Read & Sign Compliance Management System',
-    description: 'Enterprise M365-integrated compliance platform for acknowledging and tracking Read & Sign topics across ALL, ALS, and Lead personnel.',
-    type: 'website',
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: 'Read & Sign Compliance Management System',
-    description: 'Enterprise M365-integrated compliance platform for acknowledging and tracking Read & Sign topics across ALL, ALS, and Lead personnel.',
-  },
+  title: 'Read X Compliance',
+  description: 'Read X Compliance - DELSM Lufthansa Group Delhi',
 };
 
-export default function RootLayout({children}: {children: React.ReactNode}) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="en">
-      <body suppressHydrationWarning>{children}</body>
+      <body className="font-sans antialiased bg-slate-50 text-slate-900">
+        {children}
+      </body>
     </html>
   );
 }
