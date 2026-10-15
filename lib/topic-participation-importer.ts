@@ -10,8 +10,8 @@ export interface TopicParticipationRecord {
   topicTitle: string;
   topicType?: string;
   targetGroup?: string;
-  als?: string;
-  lead?: string;
+  ALS?: string;
+  Lead?: string;
   confirmedAt: string;
   status: 'confirmed' | 'pending_wbt_verification' | 'rejected' | 'missing';
   signature?: string;
@@ -180,8 +180,8 @@ export function parseParticipationFileContent(
             uNumber: uNumVal || `U${Math.floor(1000 + Math.random() * 9000)}`,
             name: staffNameVal || emailVal.split('@')[0] || 'Staff Member',
             email: emailVal || `${(uNumVal || 'staff').toLowerCase()}@airline.com`,
-            als: alsVal || 'ALS-1',
-            lead: leadVal || 'No',
+            ALS: alsVal || 'ALS-1',
+            Lead: leadVal || 'No',
             role: 'user',
             team: 'Ground Operations',
             department: 'Operations',
@@ -291,8 +291,8 @@ export function parseParticipationFileContent(
           topicTitle: matchedTopic.title || topicTitleVal,
           topicType: topicTypeVal || matchedTopic.type,
           targetGroup: targetGroupVal || matchedTopic.targetGroup,
-          als: alsVal || matchedUser.als,
-          lead: leadVal || matchedUser.lead,
+          ALS: alsVal || matchedUser.ALS,
+          Lead: leadVal || matchedUser.Lead,
           confirmedAt: recordDate,
           status: recordStatus,
           signature: signatureVal || (recordStatus === 'confirmed' ? 'Electronically Verified' : ''),
@@ -454,8 +454,8 @@ export function generateSampleParticipationCSV(type: 'matrix' | 'flat', users: U
       u.uNumber || `U100${i}`,
       u.name || `Staff Member ${i + 1}`,
       u.email || `staff${i + 1}@example.com`,
-      u.als || 'ALS 1',
-      u.lead || 'Team Alpha',
+      u.ALS || 'ALS 1',
+      u.Lead || 'Team Alpha',
       i === 0 ? 'CONFIRMED' : 'YES',
       i === 1 ? 'CONFIRMED' : 'NO',
       'YES',
@@ -488,8 +488,8 @@ export function generateSampleParticipationCSV(type: 'matrix' | 'flat', users: U
         u.uNumber || `U100${uIdx}`,
         u.name || `Staff ${uIdx + 1}`,
         u.email || `user${uIdx + 1}@example.com`,
-        u.als || 'ALS 1',
-        u.lead || 'Team Lead',
+        u.ALS || 'ALS 1',
+        u.Lead || 'Team Lead',
         tIdx % 2 === 0 ? 'CONFIRMED' : 'PENDING',
         '2026-10-14 10:00:00',
         'Digitally Signed',

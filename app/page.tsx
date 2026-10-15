@@ -41,8 +41,8 @@ export default function Home() {
     uNumber: 'U1000',
     name: 'Sarah Jenkins',
     email: 'sarah.jenkins@groundops.com',
-    als: 'ALS-HQ',
-    lead: 'Lead Executive',
+    ALS: 'ALS-HQ',
+    Lead: 'Lead Executive',
     role: 'admin',
     isSuperAdmin: true,
     team: 'Flight Safety & Operations',
@@ -58,148 +58,7 @@ export default function Home() {
   const [showLoginModal, setShowLoginModal] = useState<boolean>(true);
 
   // Initial Seed Data for Cloud Firestore
-  const initialSeedTopics: Topic[] = [
-    {
-      id: 'top-104',
-      title: 'Annual Web-Based Training (WBT) - Ground Safety & De-icing 2026',
-      description: 'Mandatory annual online WBT course. Complete module on LMS, upload certificate to Teams, and submit for Super Admin verification.',
-      content: 'Please complete the online WBT module in your browser or Vitero LMS, download your completion certificate PDF, upload it to the Microsoft Teams / SharePoint folder, and submit your completion notice here.',
-      type: 'WBT',
-      targetGroup: 'All',
-      publishedDate: '2026-10-01',
-      dueDate: '2026-10-31',
-      createdBy: 'sarah.jenkins@groundops.com',
-      createdAt: '2026-10-01T09:00:00Z',
-      status: 'active',
-    },
-    {
-      id: 'top-101',
-      title: 'Q4 2026 Ramp Safety & Hazardous Materials Protocol',
-      description: 'Mandatory read and sign directive covering revised aircraft loading standards and hazmat safety protocols.',
-      content: 'All personnel must adhere strictly to standard operating procedures when handling hazardous cargo and operating motorized ramp equipment.',
-      type: 'Document Read and Sign',
-      targetGroup: 'All',
-      publishedDate: '2026-10-01',
-      dueDate: '2026-10-31',
-      createdBy: 'sarah.jenkins@groundops.com',
-      createdAt: '2026-10-01T08:00:00Z',
-      status: 'active',
-    },
-    {
-      id: 'top-102',
-      title: 'Vitero Virtual Security Briefing - October Session',
-      description: 'Online interactive briefing regarding updated terminal access permissions and biometric security clearance.',
-      content: 'Participate in the live Vitero session or review the recorded webinar and sign off on compliance obligations.',
-      type: 'Vitero Sessions',
-      targetGroup: 'Lead',
-      publishedDate: '2026-10-05',
-      dueDate: '2026-10-25',
-      createdBy: 'sarah.jenkins@groundops.com',
-      createdAt: '2026-10-05T09:30:00Z',
-      status: 'active',
-    },
-    {
-      id: 'top-103',
-      title: 'Ground Ops Community Call #14 - Winter Readiness',
-      description: 'Monthly operational sync reviewing de-icing procedures and extreme weather emergency response plans.',
-      content: 'Review winter weather operational directives, revised contact trees, and equipment inspection logs.',
-      type: 'Ground Ops Community Calls',
-      targetGroup: 'ALS',
-      publishedDate: '2026-09-20',
-      dueDate: '2026-10-10',
-      createdBy: 'sarah.jenkins@groundops.com',
-      createdAt: '2026-09-20T11:00:00Z',
-      status: 'closed',
-      closeOption: 'mark_participated',
-    },
-  ];
 
-  const initialSeedUsers: User[] = [
-    {
-      id: 'usr-1',
-      uNumber: 'U1000',
-      name: 'Sarah Jenkins',
-      email: 'sarah.jenkins@groundops.com',
-      als: 'ALS-HQ',
-      lead: 'Lead Executive',
-      role: 'admin',
-      isSuperAdmin: true,
-      team: 'Flight Safety & Operations',
-      department: 'Ground Operations',
-    },
-    {
-      id: 'usr-admin-1',
-      uNumber: 'U1001',
-      name: 'Duty Manager Admin',
-      email: 'admin@groundops.com',
-      als: 'ALS-1',
-      lead: 'Lead Officer',
-      role: 'admin',
-      isSuperAdmin: false,
-      team: 'Ramp Services',
-      department: 'Ground Operations',
-    },
-    {
-      id: 'usr-2',
-      uNumber: 'U1002',
-      name: 'Marcus Vance',
-      email: 'marcus.vance@groundops.com',
-      als: 'ALS-1',
-      lead: 'Ramp Lead',
-      role: 'user',
-      team: 'Ramp Services',
-      department: 'Ground Operations',
-    },
-    {
-      id: 'usr-3',
-      uNumber: 'U1003',
-      name: 'Elena Rostova',
-      email: 'elena.rostova@groundops.com',
-      als: 'ALS-2',
-      lead: 'No',
-      role: 'user',
-      team: 'Cargo & Baggage',
-      department: 'Logistics',
-    },
-    {
-      id: 'usr-4',
-      uNumber: 'U1004',
-      name: 'David Kalu',
-      email: 'david.kalu@groundops.com',
-      als: 'ALS-1',
-      lead: 'No',
-      role: 'user',
-      team: 'Flight Safety & Operations',
-      department: 'Ground Operations',
-    },
-    {
-      id: 'usr-5',
-      uNumber: 'U1005',
-      name: 'Hannah Abbott',
-      email: 'hannah.abbott@groundops.com',
-      als: 'ALS-3',
-      lead: 'No',
-      role: 'user',
-      team: 'Passenger Services',
-      department: 'Terminal Ops',
-    },
-  ];
-
-  const initialSeedConfirmations: TopicConfirmation[] = [
-    {
-      id: 'conf-usr-2-top-104',
-      userId: 'usr-2',
-      topicId: 'top-104',
-      userName: 'Marcus Vance',
-      userEmail: 'marcus.vance@groundops.com',
-      documentTitle: 'Annual Web-Based Training (WBT) - Ground Safety & De-icing 2026',
-      isLate: false,
-      wbtCertificateFileName: 'Marcus_Vance_GroundSafety_Deicing_WBT_2026.pdf',
-      wbtNotes: 'Certificate uploaded to Teams folder on Oct 12',
-      confirmedAt: '2026-10-12T14:30:00Z',
-      status: 'pending_wbt_verification',
-    },
-  ];
 
   // Real-Time Cloud Listeners
   useEffect(() => {
@@ -208,31 +67,19 @@ export default function Home() {
     // Subscribe to topics
     const unsubTopics = subscribeToTopics((remoteTopics) => {
       const validTopics = remoteTopics.filter((t) => t && t.id && t.title);
-      if (validTopics.length === 0) {
-        initialSeedTopics.forEach((t) => saveTopicToCloud(t));
-      } else {
-        setTopics(validTopics);
-      }
+      setTopics(validTopics);
     });
 
     // Subscribe to users
     const unsubUsers = subscribeToUsers((remoteUsers) => {
       const validUsers = remoteUsers.filter((u) => u && u.id && u.email);
-      if (validUsers.length === 0) {
-        initialSeedUsers.forEach((u) => saveUserToCloud(u));
-      } else {
-        setUsers(validUsers);
-      }
+      setUsers(validUsers);
     });
 
     // Subscribe to confirmations
     const unsubConfirmations = subscribeToConfirmations((remoteConfirmations) => {
       const validConfirmations = remoteConfirmations.filter((c) => c && c.id);
-      if (validConfirmations.length === 0) {
-        initialSeedConfirmations.forEach((c) => saveConfirmationToCloud(c));
-      } else {
-        setConfirmations(validConfirmations);
-      }
+      setConfirmations(validConfirmations);
     });
 
     return () => {
@@ -485,7 +332,7 @@ export default function Home() {
     }
   };
 
-  const availableUsers = (users.length > 0 ? users : initialSeedUsers).filter(
+  const availableUsers = users.filter(
     (u) => u && (u.name || u.email)
   );
 

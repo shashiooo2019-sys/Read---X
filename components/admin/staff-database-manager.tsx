@@ -72,7 +72,7 @@ export function StaffDatabaseManager({
   const uniqueAlsOptions = useMemo(() => {
     const set = new Set<string>();
     users.forEach((u) => {
-      if (u.als) set.add(u.als);
+      if (u.ALS) set.add(u.ALS);
     });
     return Array.from(set).sort();
   }, [users]);
@@ -81,7 +81,7 @@ export function StaffDatabaseManager({
   const uniqueLeadOptions = useMemo(() => {
     const set = new Set<string>();
     users.forEach((u) => {
-      if (u.lead) set.add(u.lead);
+      if (u.Lead) set.add(u.Lead);
     });
     return Array.from(set).sort();
   }, [users]);
@@ -121,6 +121,10 @@ export function StaffDatabaseManager({
 
   // Staff details modal state
   const [selectedStaffForDetails, setSelectedStaffForDetails] = useState<User | null>(null);
+
+  // Staff member deletion confirmation modal state
+  const [userToDelete, setUserToDelete] = useState<User | null>(null);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
 
   // Calculate duplicate groups by U Number
   const duplicateInfo = useMemo(() => {
@@ -191,13 +195,13 @@ export function StaffDatabaseManager({
       .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }))
       .filter((u) => {
         // ALS Filter
-        if (alsFilter !== 'all' && u.als !== alsFilter) return false;
+        if (alsFilter !== 'all' && u.ALS !== alsFilter) return false;
 
         // Lead Filter
         if (leadFilter !== 'all') {
-          if (leadFilter === 'Yes' && !(u.lead === 'Yes' || u.lead?.toLowerCase().includes('lead'))) return false;
-          if (leadFilter === 'No' && (u.lead === 'Yes' || u.lead?.toLowerCase().includes('lead'))) return false;
-          if (leadFilter !== 'Yes' && leadFilter !== 'No' && u.lead !== leadFilter) return false;
+          if (leadFilter === 'Yes' && !(u.Lead === 'Yes' || u.Lead?.toLowerCase().includes('lead'))) return false;
+          if (leadFilter === 'No' && (u.Lead === 'Yes' || u.Lead?.toLowerCase().includes('lead'))) return false;
+          if (leadFilter !== 'Yes' && leadFilter !== 'No' && u.Lead !== leadFilter) return false;
         }
 
         // Search Query
@@ -207,8 +211,8 @@ export function StaffDatabaseManager({
           (u.uNumber && u.uNumber.toLowerCase().includes(q)) ||
           (u.name && u.name.toLowerCase().includes(q)) ||
           (u.email && u.email.toLowerCase().includes(q)) ||
-          (u.als && u.als.toLowerCase().includes(q)) ||
-          (u.lead && u.lead.toLowerCase().includes(q)) ||
+          (u.ALS && u.ALS.toLowerCase().includes(q)) ||
+          (u.Lead && u.Lead.toLowerCase().includes(q)) ||
           (u.team && u.team.toLowerCase().includes(q))
         );
       });
@@ -219,8 +223,8 @@ export function StaffDatabaseManager({
     setFormUNumber(`U${1000 + users.length + 1}`);
     setFormName('');
     setFormEmail('');
-    setFormAls('ALS-1');
-    setFormLead('No');
+    setFormAls('N');
+    setFormLead('N');
     setFormRole('user');
     setFormIsSuperAdmin(false);
     setFormTeam('Ramp Operations');
@@ -233,8 +237,8 @@ export function StaffDatabaseManager({
     setFormUNumber(u.uNumber || `U${1000}`);
     setFormName(u.name || '');
     setFormEmail(u.email || '');
-    setFormAls(u.als || 'ALS-1');
-    setFormLead(u.lead || 'No');
+    setFormAls(u.ALS || 'N');
+    setFormLead(u.Lead || 'N');
     setFormRole(u.role || 'user');
     setFormIsSuperAdmin(!!u.isSuperAdmin);
     setFormTeam(u.team || 'Ramp Operations');
@@ -265,8 +269,8 @@ export function StaffDatabaseManager({
         uNumber: formUNumber.trim(),
         name: formName.trim(),
         email: formEmail.trim().toLowerCase(),
-        als: formAls.trim(),
-        lead: formLead.trim(),
+        ALS: formAls.trim(),
+        Lead: formLead.trim(),
         role: existingUserByUNum ? existingUserByUNum.role : formRole,
         isSuperAdmin: existingUserByUNum ? existingUserByUNum.isSuperAdmin : formIsSuperAdmin,
         team: formTeam.trim(),
@@ -403,8 +407,8 @@ export function StaffDatabaseManager({
                 uNumber: uNum ? uNum.trim() : `U${2000 + i}`,
                 name: name.trim(),
                 email: email.toLowerCase().trim(),
-                als: als ? als.trim() : 'ALS-1',
-                lead: lead ? lead.trim() : 'No',
+                ALS: als ? als.trim() : 'ALS-1',
+                Lead: lead ? lead.trim() : 'No',
                 role: 'user',
                 team: 'Ground Operations',
                 department: 'Operations',
@@ -420,8 +424,8 @@ export function StaffDatabaseManager({
             uNumber: uNum ? uNum.trim() : `U${2000 + i}`,
             name: name.trim(),
             email: email.toLowerCase().trim(),
-            als: als ? als.trim() : 'ALS-1',
-            lead: lead ? lead.trim() : 'No',
+            ALS: (als && als.trim().toUpperCase() === 'Y') ? 'Y' : 'N',
+            Lead: (lead && lead.trim().toUpperCase() === 'Y') ? 'Y' : 'N',
             role: 'user',
             team: 'Ground Operations',
             department: 'Operations',
@@ -534,10 +538,10 @@ export function StaffDatabaseManager({
               onChange={(e) => setAlsFilter(e.target.value)}
               className="bg-transparent font-medium text-slate-800 focus:outline-none cursor-pointer text-xs"
             >
-              <option value="all">All ALS Stations</option>
+              <option value="all">All ALS (Y/N)s</option>
               {uniqueAlsOptions.map((als) => (
                 <option key={als} value={als}>
-                  {als} ({users.filter((u) => u.als === als).length})
+                  {als} ({users.filter((u) => u.ALS === als).length})
                 </option>
               ))}
             </select>
@@ -553,7 +557,7 @@ export function StaffDatabaseManager({
               className="bg-transparent font-medium text-slate-800 focus:outline-none cursor-pointer text-xs"
             >
               <option value="all">All Lead Roles</option>
-              <option value="Yes">Lead Supervisors (Yes)</option>
+              <option value="Yes">Lead (Y/N)s (Yes)</option>
               <option value="No">Non-Lead Personnel (No)</option>
               {uniqueLeadOptions
                 .filter((l) => l !== 'Yes' && l !== 'No')
@@ -716,17 +720,21 @@ export function StaffDatabaseManager({
                       {u.email}
                     </td>
                     <td className="p-3 font-semibold text-slate-700">
-                      <span className="px-2 py-0.5 rounded bg-slate-100 border border-slate-200">
-                        {u.als || 'ALS-1'}
+                      <span className={`px-2 py-0.5 rounded ${
+                        u.ALS === 'Y' 
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        {u.ALS === 'Y' ? 'Y' : 'N'}
                       </span>
                     </td>
                     <td className="p-3 font-semibold text-slate-700">
                       <span className={`px-2 py-0.5 rounded ${
-                        u.lead === 'Yes' || u.lead?.toLowerCase().includes('lead')
+                        u.Lead === 'Y'
                           ? 'bg-purple-100 text-purple-800 font-bold'
                           : 'bg-slate-100 text-slate-600'
                       }`}>
-                        {u.lead || 'No'}
+                        {u.Lead === 'Y' ? 'Y' : 'N'}
                       </span>
                     </td>
                     <td className="p-3">
@@ -783,13 +791,10 @@ export function StaffDatabaseManager({
                         </button>
 
                         <button
-                          onClick={async () => {
-                            if (confirm(`Delete staff member '${u.name}' (${u.email})?`)) {
-                              await onDeleteUser(u.id);
-                            }
-                          }}
+                          type="button"
+                          onClick={() => setUserToDelete(u)}
                           title="Delete Staff Member"
-                          className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition"
+                          className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -831,9 +836,9 @@ export function StaffDatabaseManager({
                     <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-800 font-bold text-xs flex items-center justify-center shrink-0">
                       {u.name.charAt(0).toUpperCase()}
                     </div>
-                    <div className="min-w-0">
-                      <h4 className="font-bold text-slate-900 text-sm truncate">{u.name}</h4>
-                      <p className="text-[11px] font-mono font-bold text-blue-700">{u.uNumber || 'N/A'}</p>
+                    <div className="min-w-0 bg-[#05164d] p-2 rounded-lg">
+                      <h4 className="font-bold text-white text-sm truncate">{u.name}</h4>
+                      <p className="text-[11px] font-mono font-bold text-[#ffcf00]">{u.uNumber || 'N/A'}</p>
                     </div>
                   </div>
 
@@ -857,18 +862,18 @@ export function StaffDatabaseManager({
 
                   <div className="grid grid-cols-2 gap-2">
                     <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">ALS Station</span>
-                      <span className="font-semibold text-slate-800">{u.als || 'ALS-1'}</span>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">ALS (Y/N)</span>
+                      <span className="font-semibold text-slate-800">{u.ALS === 'Y' ? 'Y' : 'N'}</span>
                     </div>
 
                     <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Lead Supervisor</span>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Lead (Y/N)</span>
                       <span className={`font-semibold ${
-                        u.lead === 'Yes' || u.lead?.toLowerCase().includes('lead')
+                        u.Lead === 'Yes' || u.Lead?.toLowerCase().includes('lead')
                           ? 'text-purple-800 font-bold'
                           : 'text-slate-700'
                       }`}>
-                        {u.lead || 'No'}
+                        {u.Lead === 'Y' ? 'Y' : 'N'}
                       </span>
                     </div>
                   </div>
@@ -920,12 +925,12 @@ export function StaffDatabaseManager({
                   </button>
 
                   <button
-                    onClick={async () => {
-                      if (confirm(`Delete staff member '${u.name}' (${u.email})?`)) {
-                        await onDeleteUser(u.id);
-                      }
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setUserToDelete(u);
                     }}
-                    className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 font-semibold text-xs flex items-center gap-1 transition"
+                    className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 font-semibold text-xs flex items-center gap-1 transition cursor-pointer"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                     <span>Delete</span>
@@ -993,26 +998,25 @@ export function StaffDatabaseManager({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">ALS Station / Team</label>
-                  <input
-                    type="text"
+                  <label className="block font-bold text-slate-700 mb-1">ALS (Y/N)</label>
+                  <select
                     value={formAls}
                     onChange={(e) => setFormAls(e.target.value)}
                     className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl"
-                    placeholder="e.g. ALS-1 / ALS-DXB"
-                  />
+                  >
+                    <option value="N">N</option>
+                    <option value="Y">Y</option>
+                  </select>
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Lead Supervisor</label>
+                  <label className="block font-bold text-slate-700 mb-1">Lead (Y/N)</label>
                   <select
                     value={formLead}
                     onChange={(e) => setFormLead(e.target.value)}
                     className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl"
                   >
-                    <option value="No">No</option>
-                    <option value="Yes">Yes</option>
-                    <option value="Lead Officer">Lead Officer</option>
-                    <option value="Ramp Lead">Ramp Lead</option>
+                    <option value="N">N</option>
+                    <option value="Y">Y</option>
                   </select>
                 </div>
               </div>
@@ -1293,16 +1297,16 @@ export function StaffDatabaseManager({
                 </div>
                 <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
                   <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Station / ALS</span>
-                  <span className="font-bold text-slate-900">{selectedStaffForDetails.als || 'ALS-1'}</span>
+                  <span className="font-bold text-slate-900">{selectedStaffForDetails.ALS || 'ALS-1'}</span>
                 </div>
                 <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Lead Supervisor Status</span>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Lead (Y/N) Status</span>
                   <span className={`font-bold ${
-                    selectedStaffForDetails.lead === 'Yes' || selectedStaffForDetails.lead?.toLowerCase().includes('lead')
+                    selectedStaffForDetails.Lead === 'Yes' || selectedStaffForDetails.Lead?.toLowerCase().includes('lead')
                       ? 'text-purple-700 font-bold'
                       : 'text-slate-700'
                   }`}>
-                    {selectedStaffForDetails.lead || 'No'}
+                    {selectedStaffForDetails.Lead || 'No'}
                   </span>
                 </div>
                 <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
@@ -1502,6 +1506,103 @@ export function StaffDatabaseManager({
                     ? 'Deleting Duplicates...'
                     : `Confirm Delete ${duplicateInfo.totalDuplicates} Duplicate Staff Record(s)`}
                 </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Staff Member Deletion Confirmation Modal with Random Text Challenge */}
+      {userToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden transform animate-in zoom-in-95 duration-150">
+            <div className="p-5 border-b border-slate-100 flex items-start gap-3 bg-red-50/60">
+              <div className="p-2.5 bg-red-100 text-red-600 rounded-full shrink-0">
+                <AlertCircle className="w-5 h-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-bold text-slate-900">Delete Staff Member Record</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Permanent removal from Cloud Firestore</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setUserToDelete(null)}
+                disabled={isDeletingUser}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-md cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs text-slate-600">
+              <p>
+                Are you sure you want to permanently delete this staff member record?
+              </p>
+              <div className="p-3 bg-red-50/80 border border-red-200 rounded-xl space-y-1">
+                <div className="font-bold text-red-900 text-sm">
+                  {userToDelete.name} ({userToDelete.uNumber || 'N/A'})
+                </div>
+                <div className="text-[11px] text-red-700 font-mono">
+                  {userToDelete.email}
+                </div>
+              </div>
+
+              {/* Random text challenge */}
+              <div className="space-y-1.5 pt-1">
+                <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                  Type <span className="font-mono text-red-600 font-extrabold bg-red-50 px-1 py-0.5 rounded border border-red-200">CONFIRM-DELETE-9911</span> to enable deletion:
+                </label>
+                <input
+                  type="text"
+                  id="confirm-delete-staff-input"
+                  placeholder="Type CONFIRM-DELETE-9911 here"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500"
+                />
+              </div>
+
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-[11px] leading-relaxed">
+                <strong>Firestore Deletion Notice:</strong> This action cannot be undone. All staff profile details and historical participation links will be erased.
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setUserToDelete(null)}
+                disabled={isDeletingUser}
+                className="px-3.5 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const inputVal = (document.getElementById('confirm-delete-staff-input') as HTMLInputElement)?.value || '';
+                  if (inputVal.trim() !== 'CONFIRM-DELETE-9911') {
+                    alert('Please type the exact confirmation code (CONFIRM-DELETE-9911) to confirm staff record deletion.');
+                    return;
+                  }
+                  setIsDeletingUser(true);
+                  try {
+                    await onDeleteUser(userToDelete.id);
+                    setUserToDelete(null);
+                  } finally {
+                    setIsDeletingUser(false);
+                  }
+                }}
+                disabled={isDeletingUser}
+                className="px-4 py-1.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 active:bg-red-800 rounded-lg transition shadow-xs inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isDeletingUser ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block" />
+                    <span>Deleting Staff...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Staff Permanently</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

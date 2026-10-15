@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Topic, TopicType, TargetGroup } from '@/lib/types';
+import { Topic, TopicType, TargetGroup, User } from '@/lib/types';
 import { X, FileText, Users, Calendar, Sparkles } from 'lucide-react';
+import { SelectStaffModal } from './select-staff-modal';
 
 interface CreateTopicModalProps {
   isOpen?: boolean;
@@ -10,7 +11,7 @@ interface CreateTopicModalProps {
   onCreate?: (topic: Omit<Topic, 'id' | 'createdAt'>) => void;
   onSaveTopic?: (topic: Omit<Topic, 'id' | 'createdAt'>) => void;
   currentUserEmail?: string;
-  users?: any[];
+  users?: User[];
 }
 
 const TOPIC_TYPES: TopicType[] = [
@@ -28,7 +29,15 @@ const TOPIC_TYPES: TopicType[] = [
   'Others',
 ];
 
-const TARGET_GROUPS: TargetGroup[] = ['All', 'ALS', 'Lead', 'ALS_AND_LEAD', 'Team', 'Department'];
+const TARGET_GROUPS: { label: string; value: TargetGroup }[] = [
+  { label: 'All Staff', value: 'All' },
+  { label: 'ALS Qualified', value: 'ALS' },
+  { label: 'Station Leads', value: 'Lead' },
+  { label: 'ALS & Station Leads', value: 'ALS_AND_LEAD' },
+  { label: 'By Team', value: 'Team' },
+  { label: 'By Department', value: 'Department' },
+  { label: 'Individual Staff (Custom)', value: 'CUSTOM' },
+];
 
 export function CreateTopicModal({
   isOpen = true,
@@ -36,13 +45,22 @@ export function CreateTopicModal({
   onCreate,
   onSaveTopic,
   currentUserEmail = 'admin@example.com',
+  users = [],
 }: CreateTopicModalProps) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [content, setContent] = useState('');
   const [type, setType] = useState<TopicType>('Document Read and Sign');
   const [targetGroup, setTargetGroup] = useState<TargetGroup>('All');
+  const [assignedUserIds, setAssignedUserIds] = useState<string[]>([]);
+  const [assignedTeams, setAssignedTeams] = useState<string[]>([]);
+  const [assignedDepartments, setAssignedDepartments] = useState<string[]>([]);
+  const [showSelectStaffModal, setShowSelectStaffModal] = useState(false);
+  const [publishedDate, setPublishedDate] = useState(new Date().toISOString().split('T')[0]);
   const [dueDate, setDueDate] = useState('');
+
+  const uniqueTeams = React.useMemo(() => Array.from(new Set(users.map(u => u.team).filter((t): t is string => !!t))), [users]);
+  const uniqueDepartments = React.useMemo(() => Array.from(new Set(users.map(u => u.department).filter((t): t is string => !!t))), [users]);
 
   if (!isOpen) return null;
 
@@ -55,10 +73,14 @@ export function CreateTopicModal({
       description,
       content: content || description || 'Please review and acknowledge this topic.',
       type,
-      targetGroup,
+      targetGroup: targetGroup === 'CUSTOM' ? 'CUSTOM' : targetGroup,
+      assignedUserIds: targetGroup === 'CUSTOM' ? assignedUserIds : undefined,
+      assignedUserNames: targetGroup === 'CUSTOM' ? users.filter(u => assignedUserIds.includes(u.id)).map(u => u.name) : undefined,
+      targetTeams: targetGroup === 'Team' ? assignedTeams : undefined,
+      targetDepartments: targetGroup === 'Department' ? assignedDepartments : undefined,
       dueDate: dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       createdBy: currentUserEmail,
-      publishedDate: new Date().toISOString().split('T')[0],
+      publishedDate: publishedDate || new Date().toISOString().split('T')[0],
       status: 'active',
     };
 
@@ -68,6 +90,8 @@ export function CreateTopicModal({
     setTitle('');
     setDescription('');
     setContent('');
+    setAssignedTeams([]);
+    setAssignedDepartments([]);
     onClose();
   };
 
@@ -135,32 +159,103 @@ export function CreateTopicModal({
                 <Users className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                 <select
                   value={targetGroup}
-                  onChange={(e) => setTargetGroup(e.target.value as TargetGroup)}
+                  onChange={(e) => {
+                    const val = e.target.value as TargetGroup;
+                    setTargetGroup(val);
+                    if (val === 'CUSTOM') {
+                      setShowSelectStaffModal(true);
+                    }
+                  }}
                   className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
                 >
                   {TARGET_GROUPS.map((g) => (
-                    <option key={g} value={g}>
-                      {g}
+                    <option key={g.value} value={g.value}>
+                      {g.label}
                     </option>
                   ))}
                 </select>
               </div>
+
+              {/* Conditional Target UI */}
+              {targetGroup === 'CUSTOM' && (
+                <div className="mt-2 flex items-center justify-between p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-xs">
+                  <span className="font-semibold text-blue-900">
+                    {assignedUserIds.length} staff member(s) selected
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowSelectStaffModal(true)}
+                    className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold transition cursor-pointer"
+                  >
+                    Select Staff...
+                  </button>
+                </div>
+              )}
+
+              {targetGroup === 'Team' && (
+                <div className="mt-2 space-y-1">
+                  {uniqueTeams.map(team => (
+                    <label key={team} className="flex items-center gap-2 text-xs text-slate-700 p-2 bg-slate-50 rounded-lg border border-slate-200">
+                      <input 
+                        type="checkbox" 
+                        checked={assignedTeams.includes(team)}
+                        onChange={(e) => setAssignedTeams(prev => e.target.checked ? [...prev, team] : prev.filter(t => t !== team))}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      {team}
+                    </label>
+                  ))}
+                </div>
+              )}
+
+              {targetGroup === 'Department' && (
+                <div className="mt-2 space-y-1">
+                  {uniqueDepartments.map(dept => (
+                    <label key={dept} className="flex items-center gap-2 text-xs text-slate-700 p-2 bg-slate-50 rounded-lg border border-slate-200">
+                      <input 
+                        type="checkbox" 
+                        checked={assignedDepartments.includes(dept)}
+                        onChange={(e) => setAssignedDepartments(prev => e.target.checked ? [...prev, dept] : prev.filter(d => d !== dept))}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      {dept}
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Due Date */}
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-1">
-              Acknowledgement Due Date
-            </label>
-            <div className="relative">
-              <Calendar className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-              <input
-                type="date"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
-              />
+          {/* Date Published & Due Date Row */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">
+                Date Published
+              </label>
+              <div className="relative">
+                <Calendar className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                <input
+                  type="date"
+                  value={publishedDate}
+                  onChange={(e) => setPublishedDate(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">
+                Acknowledgement Due Date
+              </label>
+              <div className="relative">
+                <Calendar className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                <input
+                  type="date"
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                />
+              </div>
             </div>
           </div>
 
@@ -210,6 +305,15 @@ export function CreateTopicModal({
           </div>
         </form>
       </div>
+
+      {/* Select Staff Names Modal */}
+      <SelectStaffModal
+        isOpen={showSelectStaffModal}
+        onClose={() => setShowSelectStaffModal(false)}
+        users={users}
+        initiallySelectedIds={assignedUserIds}
+        onConfirmSelection={(ids) => setAssignedUserIds(ids)}
+      />
     </div>
   );
 }

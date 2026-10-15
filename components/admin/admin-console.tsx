@@ -125,7 +125,11 @@ export function AdminConsole({
   // Modal states
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showImportParticipationModal, setShowImportParticipationModal] = useState(false);
-  const [selectedTopicForBreakdown, setSelectedTopicForBreakdown] = useState<TopicComplianceStats | null>(null);
+  const [selectedTopicForBreakdown, setSelectedTopicForBreakdown] = useState<{
+    topic: Topic;
+    stat: TopicComplianceStats;
+    initialStatusFilter?: 'all' | 'confirmed' | 'missing';
+  } | null>(null);
   const [topicToClose, setTopicToClose] = useState<{ topic: Topic; stat: TopicComplianceStats } | null>(null);
   const [adminCloseOption, setAdminCloseOption] = useState<TopicCloseOption>('mark_participated');
   const [showApprovedModal, setShowApprovedModal] = useState(false);
@@ -174,6 +178,16 @@ export function AdminConsole({
 
   const handleConfirmBulkDelete = async () => {
     if (selectedTopicIds.size === 0) return;
+    
+    // Generate a random 4-digit code
+    const randomCode = Math.floor(1000 + Math.random() * 9000).toString();
+    const userInput = prompt(`Are you ABSOLUTELY sure you want to delete ${selectedTopicIds.size} topics? This action CANNOT be undone.\n\nPlease type the following code to confirm: ${randomCode}`);
+
+    if (userInput !== randomCode) {
+        alert("Incorrect code. Deletion cancelled.");
+        return;
+    }
+
     setIsBulkDeleting(true);
     try {
       const idsToDelete = Array.from(selectedTopicIds);
@@ -1484,10 +1498,10 @@ export function AdminConsole({
         {/* Table View for desktop (md and larger) */}
         <div ref={tableScrollRef} className="hidden md:block overflow-x-auto relative">
           <table className="w-full text-left text-xs border-collapse">
-            <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
+            <thead className="bg-[#05164d] text-[#ffcf00] border-b border-blue-900">
               <tr>
                 <th className="py-3 px-3 w-8 text-center"></th>
-                <th className="py-2.5 sm:py-3 px-2 sm:px-4 font-semibold sticky left-0 bg-slate-50 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] w-[140px] min-w-[140px] max-w-[140px] sm:w-auto sm:min-w-[280px] sm:max-w-xs break-words">
+                <th className="py-2.5 sm:py-3 px-2 sm:px-4 font-semibold sticky left-0 bg-[#05164d] z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] w-[140px] min-w-[140px] max-w-[140px] sm:w-auto sm:min-w-[280px] sm:max-w-xs break-words">
                   Topic &amp; Directive Title
                 </th>
                 <th className="py-3 px-4 font-semibold">Type & Category</th>
@@ -1520,7 +1534,7 @@ export function AdminConsole({
                   return (
                     <tr
                       key={topic.id}
-                      onClick={() => setSelectedTopicForBreakdown(stat)}
+                      onClick={() => setSelectedTopicForBreakdown({ topic, stat, initialStatusFilter: 'all' })}
                       className={`hover:bg-slate-50/80 transition cursor-pointer ${
                         isSelected ? 'bg-blue-50/40' : ''
                       }`}
@@ -1534,11 +1548,11 @@ export function AdminConsole({
                         />
                       </td>
 
-                      <td className="py-2.5 sm:py-3 px-2 sm:px-4 sticky left-0 bg-white z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] w-[140px] min-w-[140px] max-w-[140px] sm:w-auto sm:min-w-[280px] sm:max-w-xs">
+                      <td className="py-2.5 sm:py-3 px-2 sm:px-4 sticky left-0 bg-[#05164d] z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] w-[140px] min-w-[140px] max-w-[140px] sm:w-auto sm:min-w-[280px] sm:max-w-xs">
                         <div className="flex flex-col gap-1">
                           <div
-                            className="font-semibold text-slate-900 hover:text-[#0078D4] cursor-pointer break-words line-clamp-3 sm:line-clamp-none leading-snug"
-                            onClick={() => setSelectedTopicForBreakdown(stat)}
+                            className="font-semibold text-white hover:text-[#ffcf00] cursor-pointer break-words line-clamp-3 sm:line-clamp-none leading-snug"
+                            onClick={() => setSelectedTopicForBreakdown({ topic, stat, initialStatusFilter: 'all' })}
                           >
                             {topic.title}
                           </div>
@@ -1681,7 +1695,7 @@ export function AdminConsole({
                         ) : (
                           <button
                             type="button"
-                            onClick={() => setSelectedTopicForBreakdown(stat)}
+                            onClick={() => setSelectedTopicForBreakdown({ topic, stat, initialStatusFilter: 'confirmed' })}
                             className="font-bold text-emerald-700 tabular-nums hover:underline hover:bg-emerald-50 px-2 py-1 rounded transition cursor-pointer"
                             title={`Click to inspect ${totalConfirmed} confirmed signatures`}
                           >
@@ -1698,7 +1712,7 @@ export function AdminConsole({
                         ) : (
                           <button
                             type="button"
-                            onClick={() => setSelectedTopicForBreakdown(stat)}
+                            onClick={() => setSelectedTopicForBreakdown({ topic, stat, initialStatusFilter: 'missing' })}
                             className="font-bold text-amber-700 tabular-nums hover:underline hover:bg-amber-50 px-2 py-1 rounded transition cursor-pointer"
                             title={`Click to inspect ${totalMissing} pending / missing staff`}
                           >
@@ -1713,7 +1727,7 @@ export function AdminConsole({
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setSelectedTopicForBreakdown(stat);
+                            setSelectedTopicForBreakdown({ topic, stat, initialStatusFilter: 'all' });
                           }}
                           className="px-3 py-1.5 text-xs font-bold text-white bg-[#0078D4] hover:bg-[#106EBE] rounded-xl transition inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
                           title="View staff details, confirmed signatures, and pending acknowledgements"
@@ -1772,7 +1786,7 @@ export function AdminConsole({
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setSelectedTopicForBreakdown(stat);
+                                  setSelectedTopicForBreakdown({ topic, stat, initialStatusFilter: 'confirmed' });
                                   setOpenMoreMenuTopicId(null);
                                 }}
                                 className="w-full text-left px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 rounded-xl transition flex items-center gap-2"
@@ -1784,7 +1798,7 @@ export function AdminConsole({
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setSelectedTopicForBreakdown(stat);
+                                  setSelectedTopicForBreakdown({ topic, stat, initialStatusFilter: 'missing' });
                                   setOpenMoreMenuTopicId(null);
                                 }}
                                 className="w-full text-left px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-50 rounded-xl transition flex items-center gap-2"
@@ -1850,7 +1864,7 @@ export function AdminConsole({
               return (
                 <div
                   key={topic.id}
-                  onClick={() => setSelectedTopicForBreakdown(stat)}
+                  onClick={() => setSelectedTopicForBreakdown({ topic: stat.topic, stat, initialStatusFilter: 'all' })}
                   className={`bg-white rounded-2xl border p-4 shadow-sm transition-all space-y-3 cursor-pointer ${
                     isSelected ? 'border-[#0078D4] ring-2 ring-[#0078D4]/20 bg-blue-50/20' : 'border-slate-200 hover:border-slate-300'
                   }`}
@@ -1963,7 +1977,7 @@ export function AdminConsole({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setSelectedTopicForBreakdown(stat);
+                          setSelectedTopicForBreakdown({ topic: stat.topic, stat, initialStatusFilter: 'all' });
                         }}
                         className="px-3 py-1.5 rounded-xl bg-[#0078D4] text-white hover:bg-[#106EBE] font-bold text-xs flex items-center gap-1 shadow-sm transition cursor-pointer"
                       >
@@ -2020,7 +2034,7 @@ export function AdminConsole({
                             <button
                               type="button"
                               onClick={() => {
-                                setSelectedTopicForBreakdown(stat);
+                                setSelectedTopicForBreakdown({ topic, stat, initialStatusFilter: 'confirmed' });
                                 setOpenMoreMenuTopicId(null);
                               }}
                               className="w-full text-left px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 rounded-xl transition flex items-center gap-2"
@@ -2032,7 +2046,7 @@ export function AdminConsole({
                             <button
                               type="button"
                               onClick={() => {
-                                setSelectedTopicForBreakdown(stat);
+                                setSelectedTopicForBreakdown({ topic, stat, initialStatusFilter: 'missing' });
                                 setOpenMoreMenuTopicId(null);
                               }}
                               className="w-full text-left px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-50 rounded-xl transition flex items-center gap-2"
@@ -2092,9 +2106,10 @@ export function AdminConsole({
       {selectedTopicForBreakdown && (
         <TopicBreakdownModal
           topic={selectedTopicForBreakdown.topic}
-          stats={selectedTopicForBreakdown}
+          stats={selectedTopicForBreakdown.stat}
           users={users}
           confirmations={confirmations}
+          initialStatusFilter={selectedTopicForBreakdown.initialStatusFilter || 'all'}
           onUpdateConfirmation={onUpdateConfirmation}
           onCloseTopicForAcknowledgement={onCloseTopicForAcknowledgement}
           onReopenTopicForAcknowledgement={onReopenTopicForAcknowledgement}
@@ -2267,7 +2282,7 @@ export function AdminConsole({
               </button>
             </div>
 
-            <div className="p-5 space-y-3.5 text-xs text-slate-600">
+             <div className="p-5 space-y-3.5 text-xs text-slate-600">
               <p>
                 Are you sure you want to permanently delete this compliance topic and directive?
               </p>
@@ -2278,15 +2293,27 @@ export function AdminConsole({
                 <div className="text-[11px] text-red-700 flex flex-wrap gap-x-3 gap-y-0.5 pt-0.5">
                   <span>Type: <strong className="font-medium">{topicToDelete.type || 'Directive'}</strong></span>
                   {topicToDelete.dueDate && <span>Due: <strong className="font-medium">{topicToDelete.dueDate}</strong></span>}
-                  {topicToDelete.category && <span>Category: <strong className="font-medium">{topicToDelete.category}</strong></span>}
                 </div>
               </div>
+
+              {/* Random text confirmation challenge */}
+              <div className="space-y-1.5 pt-1">
+                <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                  Type <span className="font-mono text-red-600 font-extrabold bg-red-50 px-1 py-0.5 rounded border border-red-200">DELETE-NOW-8899</span> to confirm deletion:
+                </label>
+                <input
+                  type="text"
+                  id="confirm-delete-topic-input"
+                  placeholder="Type DELETE-NOW-8899 here"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500"
+                />
+              </div>
+
               <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 text-[11px] leading-relaxed">
                 <strong className="block mb-1">Permanent Firestore Deletion Notice:</strong>
                 <ul className="list-disc list-inside space-y-0.5 text-amber-800">
                   <li>Topic record will be erased from Cloud Firestore.</li>
                   <li>All assigned staff member records will be cleared.</li>
-                  <li>All historical employee signatures and verifications will be removed.</li>
                 </ul>
               </div>
             </div>
@@ -2302,7 +2329,14 @@ export function AdminConsole({
               </button>
               <button
                 type="button"
-                onClick={handleConfirmDeleteTopic}
+                onClick={() => {
+                  const inputVal = (document.getElementById('confirm-delete-topic-input') as HTMLInputElement)?.value || '';
+                  if (inputVal.trim() !== 'DELETE-NOW-8899') {
+                    alert('Please type the exact confirmation code (DELETE-NOW-8899) to confirm deletion.');
+                    return;
+                  }
+                  handleConfirmDeleteTopic();
+                }}
                 disabled={isDeletingTopic}
                 className="px-4 py-1.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 active:bg-red-800 rounded-lg transition shadow-xs inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >

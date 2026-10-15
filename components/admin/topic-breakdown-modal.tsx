@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { Topic, User, TopicConfirmation, TopicCloseOption } from '@/lib/types';
-import { TopicComplianceStats } from '@/lib/compliance-store';
+import { TopicComplianceStats, getEligibleUsersForTopic } from '@/lib/compliance-store';
 import {
   X,
   CheckCircle2,
@@ -21,6 +21,7 @@ interface TopicBreakdownModalProps {
   stats?: TopicComplianceStats;
   users?: User[];
   confirmations?: TopicConfirmation[];
+  initialStatusFilter?: 'all' | 'confirmed' | 'missing';
   onUpdateConfirmation?: (confirmationId: string, newStatus: 'confirmed' | 'rejected', note?: string) => void;
   onCloseTopicForAcknowledgement?: (topicId: string, option: TopicCloseOption) => void;
   onReopenTopicForAcknowledgement?: (topicId: string) => void;
@@ -35,17 +36,19 @@ export function TopicBreakdownModal({
   stats,
   users = [],
   confirmations = [],
+  initialStatusFilter = 'all',
   onCloseTopicForAcknowledgement,
   onReopenTopicForAcknowledgement,
   onDeleteTopic,
 }: TopicBreakdownModalProps) {
-  const [statusFilter, setStatusFilter] = useState<'all' | 'confirmed' | 'missing'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'confirmed' | 'missing'>(initialStatusFilter);
   const [nameFilter, setNameFilter] = useState('');
 
   if (!isOpen || !topic) return null;
 
-  // Process user status items
-  const userStatuses = users.map((user) => {
+  // Process user status items for assigned/eligible staff only
+  const eligibleUsers = getEligibleUsersForTopic(topic, users);
+  const userStatuses = eligibleUsers.map((user) => {
     const conf = confirmations.find(
       (c) => c.userId === user.id && c.topicId === topic.id
     );
@@ -61,8 +64,9 @@ export function TopicBreakdownModal({
   // Filter users by status and name
   const filteredItems = userStatuses.filter(({ user, isConfirmed }) => {
     // 1. Filter for confirmed vs missing
-    if (statusFilter === 'confirmed' && !isConfirmed) return false;
-    if (statusFilter === 'missing' && isConfirmed) return false;
+    if (statusFilter === 'confirmed') return isConfirmed;
+    if (statusFilter === 'missing') return !isConfirmed;
+    return true; // 'all' shows everyone
 
     // 2. Filter for names (or email / U-number / ALS station)
     if (nameFilter.trim() !== '') {
@@ -70,7 +74,7 @@ export function TopicBreakdownModal({
       const nameStr = (user.name || '').toLowerCase();
       const emailStr = (user.email || '').toLowerCase();
       const uNumStr = (user.uNumber || '').toLowerCase();
-      const alsStr = (user.als || '').toLowerCase();
+      const alsStr = (user.ALS || '').toLowerCase();
 
       const matches =
         nameStr.includes(term) ||
@@ -353,10 +357,10 @@ export function TopicBreakdownModal({
                           </div>
                           <div className="flex items-center gap-2 text-[11px] text-slate-500 font-medium truncate mt-0.5">
                             <span>{user.email || ''}</span>
-                            {user.als && (
+                            {user.ALS && (
                               <>
                                 <span>•</span>
-                                <span className="text-slate-600 font-semibold">ALS: {user.als}</span>
+                                <span className="text-slate-600 font-semibold">ALS: {user.ALS}</span>
                               </>
                             )}
                           </div>

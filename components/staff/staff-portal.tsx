@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 
 import { AppBanner } from '@/components/common/app-banner';
+import { isUserAssignedToTopic } from '@/lib/compliance-store';
 
 interface StaffPortalProps {
   currentUser: User;
@@ -52,27 +53,23 @@ export function StaffPortal({
   const [filterTab, setFilterTab] = useState<'all' | 'pending' | 'completed'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // Filter topics relevant to this user
+
+  // Filter topics assigned to this user
+  const userAssignedTopics = topics.filter((t) => isUserAssignedToTopic(currentUser, t));
+
   const userConfirmationsMap = new Map<string, TopicConfirmation>(
     confirmations
       .filter((c) => c.userId === currentUser.id || c.userEmail?.toLowerCase() === currentUser.email?.toLowerCase())
       .map((c) => [c.topicId, c])
   );
 
-  const filteredTopics = topics.filter((t) => {
+  const filteredTopics = userAssignedTopics.filter((t) => {
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const matchTitle = t.title.toLowerCase().includes(q);
       const matchDesc = t.description?.toLowerCase().includes(q);
       const matchType = t.type.toLowerCase().includes(q);
       if (!matchTitle && !matchDesc && !matchType) return false;
-    }
-
-    if (t.targetGroup === 'Team' && t.targetTeams && t.targetTeams.length > 0) {
-      if (currentUser.team && !t.targetTeams.includes(currentUser.team)) return false;
-    }
-    if (t.targetGroup === 'Department' && t.targetDepartments && t.targetDepartments.length > 0) {
-      if (currentUser.department && !t.targetDepartments.includes(currentUser.department)) return false;
     }
 
     const conf = userConfirmationsMap.get(t.id);
@@ -85,10 +82,11 @@ export function StaffPortal({
   });
 
   // Calculate user compliance metrics
-  const totalAssigned = topics.length;
-  const completedCount = Array.from(userConfirmationsMap.values()).filter(
-    (c) => c.status === 'confirmed' || c.status === 'not_participated'
-  ).length;
+  const totalAssigned = userAssignedTopics.length;
+  const completedCount = userAssignedTopics.filter((t) => {
+    const conf = userConfirmationsMap.get(t.id);
+    return conf && (conf.status === 'confirmed' || conf.status === 'not_participated');
+  }).length;
   const pendingCount = Math.max(0, totalAssigned - completedCount);
   const compliancePercentage = totalAssigned > 0 ? Math.round((completedCount / totalAssigned) * 100) : 100;
 

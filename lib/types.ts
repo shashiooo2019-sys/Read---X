@@ -5,8 +5,8 @@ export interface User {
   uNumber?: string;
   name: string;
   email: string;
-  als?: string;
-  lead?: string;
+  ALS?: string;
+  Lead?: string;
   role: 'admin' | 'user';
   isSuperAdmin?: boolean;
   team?: string;
@@ -91,6 +91,7 @@ export interface Topic {
   targetTeams?: string[];
   targetDepartments?: string[];
   assignedUserIds?: string[];
+  assignedUserNames?: string[];
   publishedDate?: string;
   effectiveDate?: string;
   createdBy: string;

@@ -440,8 +440,8 @@ export function ImportTopicParticipationModal({
                             <td className="py-1.5 px-2.5 font-mono text-slate-700">{rec.uNumber || '-'}</td>
                             <td className="py-1.5 px-2.5 font-semibold text-slate-800">{rec.userName}</td>
                             <td className="py-1.5 px-2.5 font-mono text-slate-600">{rec.userEmail}</td>
-                            <td className="py-1.5 px-2.5 text-slate-600">{rec.als || '-'}</td>
-                            <td className="py-1.5 px-2.5 text-slate-600">{rec.lead || '-'}</td>
+                            <td className="py-1.5 px-2.5 text-slate-600">{rec.ALS || '-'}</td>
+                            <td className="py-1.5 px-2.5 text-slate-600">{rec.Lead || '-'}</td>
                             <td className="py-1.5 px-2.5">
                               <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                 rec.status === 'confirmed'
