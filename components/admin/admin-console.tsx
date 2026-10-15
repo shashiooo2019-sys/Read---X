@@ -178,16 +178,6 @@ export function AdminConsole({
 
   const handleConfirmBulkDelete = async () => {
     if (selectedTopicIds.size === 0) return;
-    
-    // Generate a random 4-digit code
-    const randomCode = Math.floor(1000 + Math.random() * 9000).toString();
-    const userInput = prompt(`Are you ABSOLUTELY sure you want to delete ${selectedTopicIds.size} topics? This action CANNOT be undone.\n\nPlease type the following code to confirm: ${randomCode}`);
-
-    if (userInput !== randomCode) {
-        alert("Incorrect code. Deletion cancelled.");
-        return;
-    }
-
     setIsBulkDeleting(true);
     try {
       const idsToDelete = Array.from(selectedTopicIds);
@@ -320,10 +310,9 @@ export function AdminConsole({
       // Future Planned vs Active filter separation
       if (statusFilter === 'future_planned') {
         if (!isFuture) return false;
-      } else {
-        // Active overview filters exclude future planned topics
-        if (isFuture) return false;
       }
+      // If statusFilter is NOT 'future_planned', we do NOT exclude future topics.
+      // (Removed the exclusion of future topics here)
 
       // 1. Topic Type Filter
       if (typeFilter !== 'all' && topic.type !== typeFilter) {
@@ -432,7 +421,7 @@ export function AdminConsole({
   };
 
   return (
-    <div className="w-full max-w-[1800px] mx-auto px-2 sm:px-4 lg:px-6 py-6 space-y-6">
+    <div className="w-full max-w-[1800px] mx-auto px-0 sm:px-4 lg:px-6 py-2 sm:py-6 space-y-2 sm:space-y-6">
       {/* Read X Compliance Banner */}
       <AppBanner />
 
@@ -440,10 +429,10 @@ export function AdminConsole({
       <div className="flex items-center gap-2 bg-slate-200/80 p-1.5 rounded-2xl border border-slate-300 w-fit">
         <button
           onClick={() => setActiveMainTab('topics')}
-          className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+          className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer border-2 ${
             activeMainTab === 'topics'
-              ? 'bg-white text-slate-900 shadow-sm border border-slate-200/80'
-              : 'text-slate-600 hover:text-slate-900'
+              ? 'border-slate-900 text-slate-900'
+              : 'border-transparent text-slate-600 hover:text-slate-900'
           }`}
         >
           <Layers className="w-4 h-4 text-blue-600" />
@@ -452,10 +441,10 @@ export function AdminConsole({
 
         <button
           onClick={() => setActiveMainTab('staff_database')}
-          className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+          className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer border-2 ${
             activeMainTab === 'staff_database'
-              ? 'bg-slate-900 text-white shadow-sm'
-              : 'text-slate-600 hover:text-slate-900'
+              ? 'border-slate-900 text-slate-900'
+              : 'border-transparent text-slate-600 hover:text-slate-900'
           }`}
         >
           <Users className="w-4 h-4 text-sky-400" />
@@ -789,17 +778,17 @@ export function AdminConsole({
                     ? 'bg-blue-50/50 border-[#0078D4] ring-2 ring-[#0078D4]/20'
                     : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-sm'
                 }`}
-                title="Click to view all active compliance topics"
+                title="Click to view all topics including future planned"
               >
                 <div className="flex items-center justify-between text-xs font-medium text-slate-500">
-                  <span>Active Topics</span>
+                  <span>All Topics</span>
                   {statusFilter === 'all' && (
-                    <span className="text-[10px] bg-[#0078D4] text-white px-1.5 py-0.2 rounded font-semibold">Active</span>
+                    <span className="text-[10px] bg-[#0078D4] text-white px-1.5 py-0.2 rounded font-semibold">All</span>
                   )}
                 </div>
-                <div className="text-2xl font-bold text-slate-900 mt-1 tabular-nums">{totalActiveTopics}</div>
+                <div className="text-2xl font-bold text-slate-900 mt-1 tabular-nums">{totalActiveTopics + totalFutureTopics}</div>
                 <div className="text-[11px] text-[#0078D4] mt-1 font-medium flex items-center justify-between">
-                  <span>Show active topics</span>
+                  <span>Show all topics</span>
                   <span className="text-slate-400">↳</span>
                 </div>
               </button>
@@ -834,20 +823,28 @@ export function AdminConsole({
                 </div>
               </div>
 
-              <div
-                className="text-left p-3.5 rounded-xl shadow-xs border bg-white border-slate-200"
+              <button
+                type="button"
+                onClick={() => setStatusFilter('future_planned')}
+                className={`text-left p-3.5 rounded-xl shadow-xs transition cursor-pointer border ${
+                  statusFilter === 'future_planned'
+                    ? 'bg-purple-50/80 border-purple-500 ring-2 ring-purple-500/20'
+                    : 'bg-[#05164d] border-blue-900'
+                }`}
+                title="Click to view only future planned topics"
               >
-                <div className="flex items-center justify-between text-xs font-medium text-purple-700">
+                <div className="flex items-center justify-between text-xs font-medium text-[#ffcf00]">
                   <div className="flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5 text-purple-600" />
+                    <Calendar className="w-3.5 h-3.5 text-[#ffcf00]" />
                     <span>Future Planned Topics</span>
                   </div>
                 </div>
-                <div className="text-2xl font-bold text-purple-900 mt-1 tabular-nums">{totalFutureTopics}</div>
-                <div className="text-[11px] text-purple-700 mt-1 font-medium flex items-center justify-between">
-                  <span>Scheduled</span>
+                <div className="text-2xl font-bold text-white mt-1 tabular-nums">{totalFutureTopics}</div>
+                <div className="text-[11px] text-blue-200 mt-1 font-medium flex items-center justify-between">
+                  <span>Show future topics</span>
+                  <span className="text-slate-400">↳</span>
                 </div>
-              </div>
+              </button>
 
               <div
                 className="text-left bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs"
@@ -1496,11 +1493,24 @@ export function AdminConsole({
         </div>
 
         {/* Table View for desktop (md and larger) */}
+        {/* Mobile List View */}
+        <div className="md:hidden space-y-3 mb-6">
+          {filteredTopicStats.map(stat => (
+            <div key={stat.topic.id} className="bg-white p-4 border border-slate-200 rounded-xl shadow-xs">
+              <div className="font-bold text-sm">{stat.topic.title}</div>
+              {stat.topic.status === 'closed' && (
+                <span className="block text-emerald-700 font-bold text-xs mt-1">CLOSED</span>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Table View */}
         <div ref={tableScrollRef} className="hidden md:block overflow-x-auto relative">
           <table className="w-full text-left text-xs border-collapse">
             <thead className="bg-[#05164d] text-[#ffcf00] border-b border-blue-900">
               <tr>
-                <th className="py-3 px-3 w-8 text-center"></th>
+
                 <th className="py-2.5 sm:py-3 px-2 sm:px-4 font-semibold sticky left-0 bg-[#05164d] z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] w-[140px] min-w-[140px] max-w-[140px] sm:w-auto sm:min-w-[280px] sm:max-w-xs break-words">
                   Topic &amp; Directive Title
                 </th>
@@ -1560,16 +1570,16 @@ export function AdminConsole({
                             {isTopicFuturePlanned(topic) && (
                               <span className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold bg-purple-100 text-purple-900 border border-purple-200 w-fit">
                                 <Calendar className="w-2.5 h-2.5 text-purple-700 shrink-0" />
-                                <span>Future Planned</span>
+                                <span>Future Tagged</span>
                               </span>
                             )}
-                            {topic.isClosed && (
+                            {topic.status === 'closed' && (
                               <span className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-200 w-fit">
                                 <CheckCircle2 className="w-2.5 h-2.5 text-emerald-700 shrink-0" />
-                                <span>Closed for Ack</span>
+                                <span>CLOSED</span>
                               </span>
                             )}
-                            {!topic.isClosed && topic.dueDate && topic.dueDate < new Date().toISOString().split('T')[0] && (
+                            {topic.status !== 'closed' && topic.dueDate && topic.dueDate < new Date().toISOString().split('T')[0] && (
                               <span className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold bg-rose-100 text-rose-900 border border-rose-200 w-fit">
                                 <AlertTriangle className="w-2.5 h-2.5 text-rose-700 shrink-0" />
                                 <span>Overdue</span>
@@ -1865,12 +1875,12 @@ export function AdminConsole({
                 <div
                   key={topic.id}
                   onClick={() => setSelectedTopicForBreakdown({ topic: stat.topic, stat, initialStatusFilter: 'all' })}
-                  className={`bg-white rounded-2xl border p-4 shadow-sm transition-all space-y-3 cursor-pointer ${
-                    isSelected ? 'border-[#0078D4] ring-2 ring-[#0078D4]/20 bg-blue-50/20' : 'border-slate-200 hover:border-slate-300'
+                  className={`bg-[#05164d] rounded-2xl border border-blue-900 p-4 shadow-sm transition-all space-y-3 cursor-pointer ${
+                    isSelected ? 'border-[#ffcf00] ring-2 ring-[#ffcf00]/30' : 'hover:border-blue-700'
                   }`}
                 >
                   {/* Card Header: Checkbox, Title, Status Badges */}
-                  <div className="flex items-start justify-between gap-3 pb-2.5 border-b border-slate-100">
+                  <div className="flex items-start justify-between gap-3 pb-2.5 border-b border-blue-800">
                     <div className="flex items-start gap-2.5 min-w-0">
                       <input
                         type="checkbox"
@@ -1879,23 +1889,23 @@ export function AdminConsole({
                           e.stopPropagation();
                           toggleSelectTopic(topic.id);
                         }}
-                        className="w-4 h-4 text-[#0078D4] rounded border-slate-300 shrink-0 mt-0.5"
+                        className="w-4 h-4 text-[#ffcf00] rounded border-blue-700 shrink-0 mt-0.5"
                       />
                       <div className="min-w-0 space-y-1">
-                        <h4 className="font-bold text-slate-900 text-sm leading-snug break-words">
+                        <h4 className="font-bold text-white text-sm leading-snug break-words">
                           {topic.title}
                         </h4>
                         <div className="flex flex-wrap items-center gap-1">
                           {isTopicFuturePlanned(topic) && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-900 border border-purple-200">
-                              <Calendar className="w-2.5 h-2.5 text-purple-700 shrink-0" />
-                              <span>Future Planned</span>
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#ffcf00] text-[#05164d] border border-amber-500">
+                              <Calendar className="w-2.5 h-2.5 shrink-0" />
+                              <span>Future Planned Topic</span>
                             </span>
                           )}
                           {topic.isClosed && (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-200">
                               <CheckCircle2 className="w-2.5 h-2.5 text-emerald-700 shrink-0" />
-                              <span>Closed</span>
+                              <span>Closed for Ack</span>
                             </span>
                           )}
                           {!topic.isClosed && topic.dueDate && topic.dueDate < new Date().toISOString().split('T')[0] && (
@@ -1911,24 +1921,24 @@ export function AdminConsole({
 
                   {/* Wrapped Details Grid */}
                   <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 col-span-2 sm:col-span-1">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Type &amp; Category</span>
-                      <span className="font-semibold text-slate-800 break-words">{topic.type}</span>
+                    <div className="bg-[#0d2568] p-2.5 rounded-xl border border-blue-800 col-span-2 sm:col-span-1">
+                      <span className="text-[10px] uppercase font-bold text-blue-200 block mb-0.5">Type &amp; Category</span>
+                      <span className="font-semibold text-white break-words">{topic.type}</span>
                       {topic.customTypeDesc && (
-                        <p className="text-[10px] text-slate-500 italic mt-0.5">{topic.customTypeDesc}</p>
+                        <p className="text-[10px] text-blue-100 italic mt-0.5">{topic.customTypeDesc}</p>
                       )}
                     </div>
 
-                    <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Target Group</span>
+                    <div className="bg-[#0d2568] p-2.5 rounded-xl border border-blue-800">
+                      <span className="text-[10px] uppercase font-bold text-blue-200 block mb-0.5">Target Group</span>
                       <span className={`font-bold px-2 py-0.5 rounded text-[11px] inline-block ${
                         topic.targetGroup === 'ALL'
-                          ? 'bg-blue-100 text-blue-800'
+                          ? 'bg-blue-100 text-blue-900'
                           : topic.targetGroup === 'ALS'
-                          ? 'bg-emerald-100 text-emerald-800'
+                          ? 'bg-emerald-100 text-emerald-900'
                           : topic.targetGroup === 'Lead'
-                          ? 'bg-purple-100 text-purple-800'
-                          : 'bg-amber-100 text-amber-800'
+                          ? 'bg-purple-100 text-purple-900'
+                          : 'bg-amber-100 text-amber-900'
                       }`}>
                         {topic.targetGroup === 'ALS_AND_LEAD' ? 'ALS & Lead' : topic.targetGroup}
                       </span>
@@ -2359,7 +2369,11 @@ export function AdminConsole({
 
       {/* Bulk Topics Deletion In-App Confirmation Modal */}
       {showBulkDeleteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150"
+             onAnimationEnd={() => {
+                const codeSpan = document.getElementById('bulk-delete-random-code');
+                if (codeSpan) codeSpan.innerText = Math.floor(1000 + Math.random() * 9000).toString();
+             }}>
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden transform animate-in zoom-in-95 duration-150">
             <div className="p-5 border-b border-slate-100 flex items-start gap-3 bg-red-50/50">
               <div className="p-2.5 bg-red-100 text-red-600 rounded-full shrink-0">
@@ -2394,6 +2408,20 @@ export function AdminConsole({
                   );
                 })}
               </div>
+
+              {/* Random text confirmation challenge */}
+              <div className="space-y-1.5 pt-1">
+                <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                  Type <span id="bulk-delete-random-code" className="font-mono text-red-600 font-extrabold bg-red-50 px-1 py-0.5 rounded border border-red-200" /> to confirm:
+                </label>
+                <input
+                  type="text"
+                  id="confirm-bulk-delete-input"
+                  placeholder="Type the code here"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500"
+                />
+              </div>
+
               <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-800 text-[11px] leading-relaxed">
                 <strong>Warning:</strong> All {selectedTopicIds.size} topic definitions, staff assignments, and acknowledgment verifications will be permanently erased from Cloud Firestore.
               </div>
@@ -2410,7 +2438,16 @@ export function AdminConsole({
               </button>
               <button
                 type="button"
-                onClick={handleConfirmBulkDelete}
+                onClick={() => {
+                  const randomCodeElement = document.getElementById('bulk-delete-random-code');
+                  const expectedCode = randomCodeElement?.innerText || '';
+                  const inputVal = (document.getElementById('confirm-bulk-delete-input') as HTMLInputElement)?.value || '';
+                  if (inputVal.trim() !== expectedCode) {
+                    alert('Please type the exact confirmation code to confirm deletion.');
+                    return;
+                  }
+                  handleConfirmBulkDelete();
+                }}
                 disabled={isBulkDeleting}
                 className="px-4 py-1.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 active:bg-red-800 rounded-lg transition shadow-xs inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >

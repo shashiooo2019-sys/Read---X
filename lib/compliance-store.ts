@@ -105,7 +105,8 @@ export function getWeekDateRange(year: number, week: number): { start: string; e
 }
 
 export function isTopicFuturePlanned(topic: Topic): boolean {
-  return false;
+  if (!topic.publishedDate) return false;
+  return new Date(topic.publishedDate) > new Date();
 }
 
 export function deduplicateTopicsByTitle(topics: Topic[]): Topic[] {
