@@ -431,11 +431,11 @@ export function AdminConsole({
           onClick={() => setActiveMainTab('topics')}
           className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer border-2 ${
             activeMainTab === 'topics'
-              ? 'border-slate-900 text-slate-900'
+              ? 'bg-blue-600 text-white border-blue-600'
               : 'border-transparent text-slate-600 hover:text-slate-900'
           }`}
         >
-          <Layers className="w-4 h-4 text-blue-600" />
+          <Layers className={`w-4 h-4 ${activeMainTab === 'topics' ? 'text-white' : 'text-blue-600'}`} />
           <span>Compliance Directives &amp; Topics</span>
         </button>
 
@@ -443,7 +443,7 @@ export function AdminConsole({
           onClick={() => setActiveMainTab('staff_database')}
           className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer border-2 ${
             activeMainTab === 'staff_database'
-              ? 'border-slate-900 text-slate-900'
+              ? 'bg-blue-600 text-white border-blue-600'
               : 'border-transparent text-slate-600 hover:text-slate-900'
           }`}
         >
@@ -1496,10 +1496,31 @@ export function AdminConsole({
         {/* Mobile List View */}
         <div className="md:hidden space-y-3 mb-6">
           {filteredTopicStats.map(stat => (
-            <div key={stat.topic.id} className="bg-white p-4 border border-slate-200 rounded-xl shadow-xs">
+            <div key={stat.topic.id} className="bg-white p-4 border border-slate-200 rounded-xl shadow-xs space-y-2">
               <div className="font-bold text-sm">{stat.topic.title}</div>
               {stat.topic.status === 'closed' && (
                 <span className="block text-emerald-700 font-bold text-xs mt-1">CLOSED</span>
+              )}
+              {/* Graphical progress bar */}
+              {!isTopicFuturePlanned(stat.topic) && (
+                <div className="pt-2">
+                  <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1">
+                    <span>{stat.completionRate}%</span>
+                    <span>({stat.totalConfirmed}/{stat.totalEligible})</span>
+                  </div>
+                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-300 ${
+                        stat.completionRate === 100
+                          ? 'bg-emerald-500'
+                          : stat.completionRate >= 60
+                          ? 'bg-[#0078D4]'
+                          : 'bg-amber-500'
+                      }`}
+                      style={{ width: `${stat.completionRate}%` }}
+                    />
+                  </div>
+                </div>
               )}
             </div>
           ))}
@@ -1510,23 +1531,26 @@ export function AdminConsole({
           <table className="w-full text-left text-xs border-collapse">
             <thead className="bg-[#05164d] text-[#ffcf00] border-b border-blue-900">
               <tr>
-
-                <th className="py-2.5 sm:py-3 px-2 sm:px-4 font-semibold sticky left-0 bg-[#05164d] z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] w-[140px] min-w-[140px] max-w-[140px] sm:w-auto sm:min-w-[280px] sm:max-w-xs break-words">
+                <th className="py-2.5 sm:py-3 px-2 sm:px-4 font-semibold sticky left-0 bg-[#05164d] z-20 w-[28px]">
+                  <input
+                    type="checkbox"
+                    checked={selectedTopicIds.size === filteredTopicStats.length && filteredTopicStats.length > 0}
+                    onChange={toggleSelectAllFiltered}
+                    className="w-3.5 h-3.5 text-[#ffcf00] rounded border-slate-600"
+                  />
+                </th>
+                <th className="py-2.5 sm:py-3 px-2 sm:px-4 font-semibold sticky left-[28px] bg-[#05164d] z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] break-words">
                   Topic &amp; Directive Title
                 </th>
                 <th className="py-3 px-4 font-semibold">Type & Category</th>
                 <th className="py-3 px-4 font-semibold">Target Group</th>
-                <th className="py-3 px-4 font-semibold">Due Date</th>
-                <th className="py-3 px-4 font-semibold">Staff Progress</th>
-                <th className="py-3 px-4 font-semibold text-center">Confirmed</th>
-                <th className="py-3 px-4 font-semibold text-center">Missing</th>
-                <th className="py-3 px-4 font-semibold text-right">Actions</th>
+                <th className="py-3 px-4 font-semibold">Participation Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredTopicStats.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-500">
+                  <td colSpan={6} className="py-12 text-center text-slate-500">
                     No compliance topics match the current filter criteria.
                   </td>
                 </tr>
@@ -1549,7 +1573,7 @@ export function AdminConsole({
                         isSelected ? 'bg-blue-50/40' : ''
                       }`}
                     >
-                      <td className="py-3 px-3 text-center" onClick={(e) => e.stopPropagation()}>
+                      <td className="py-3 px-1 text-center" onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
                           checked={isSelected}
@@ -1558,7 +1582,7 @@ export function AdminConsole({
                         />
                       </td>
 
-                      <td className="py-2.5 sm:py-3 px-2 sm:px-4 sticky left-0 bg-[#05164d] z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] w-[140px] min-w-[140px] max-w-[140px] sm:w-auto sm:min-w-[280px] sm:max-w-xs">
+                      <td className="py-2.5 sm:py-3 px-2 sm:px-4 sticky left-0 bg-[#05164d] z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] w-[28px] min-w-[28px] max-w-[28px] sm:w-auto sm:min-w-[56px] sm:max-w-xs">
                         <div className="flex flex-col gap-1">
                           <div
                             className="font-semibold text-white hover:text-[#ffcf00] cursor-pointer break-words line-clamp-3 sm:line-clamp-none leading-snug"
@@ -1602,8 +1626,7 @@ export function AdminConsole({
                           >
                             Pub: {topic.publishedDate || topic.effectiveDate || topic.createdAt?.slice(0, 10)}
                           </button>
-                          <span aria-hidden="true" className="hidden sm:inline text-slate-300">·</span>
-                          <span className="text-slate-500 truncate text-[10px] sm:text-[11px]">By {topic.createdBy.split('@')[0]}</span>
+
                         </div>
                       </td>
 
@@ -1621,6 +1644,9 @@ export function AdminConsole({
                             {topic.customTypeDesc}
                           </div>
                         )}
+                          <div className="text-[11px] text-slate-700 font-medium mt-1">
+                            Due: {topic.dueDate || 'N/A'}
+                          </div>
                       </td>
 
                       <td className="py-3 px-4">
@@ -1646,7 +1672,7 @@ export function AdminConsole({
                             ? `Custom Staff (${topic.assignedUserIds?.length || 0})`
                             : topic.targetGroup}
                         </button>
-                        <div className="text-[10px] text-slate-400 mt-0.5">
+                        <div className="text-[10px] text-slate-400 mt-1">
                           {topic.targetGroup === 'ALL'
                             ? 'All 132 Staff'
                             : topic.targetGroup === 'ALS'
@@ -1658,78 +1684,25 @@ export function AdminConsole({
                             : `${topic.assignedUserIds?.length || 0} Individual Staff`}
                         </div>
                       </td>
-
-                      <td className="py-3 px-4 tabular-nums font-medium text-slate-800">
-                        {topic.dueDate}
-                      </td>
-
-                      <td className="py-3 px-4 min-w-[140px]">
-                        {isTopicFuturePlanned(topic) ? (
-                          <div>
-                            <div className="flex items-center justify-between text-[11px] text-purple-700 mb-1 font-medium">
-                              <span>Scheduled</span>
-                              <span className="text-purple-500">({totalEligible} staff assigned)</span>
-                            </div>
-                            <div className="w-full bg-purple-100 h-2 rounded-full overflow-hidden">
-                              <div className="h-full bg-purple-400 w-full" />
-                            </div>
-                            <div className="text-[10px] text-purple-600 mt-0.5">
-                              Release date: {topic.publishedDate || topic.effectiveDate}
-                            </div>
+                      <td className="py-3 px-4 min-w-[200px] bg-[#05164d] text-[#ffcf00]">
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between text-xs font-bold">
+                            <span onClick={() => setSelectedTopicForBreakdown({ topic, stat, initialStatusFilter: 'confirmed' })} className="cursor-pointer hover:underline">{totalConfirmed} Confirmed</span>
+                            <span onClick={() => setSelectedTopicForBreakdown({ topic, stat, initialStatusFilter: 'missing' })} className="cursor-pointer hover:underline">{totalMissing} Missing</span>
                           </div>
-                        ) : (
-                          <div>
-                            <div className="flex items-center justify-between text-[11px] text-slate-600 mb-1">
-                              <span>{completionRate}%</span>
-                              <span className="text-slate-400">({totalConfirmed}/{totalEligible})</span>
-                            </div>
-                            <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                              <div
-                                className={`h-full transition-all duration-300 ${
-                                  completionRate === 100
-                                    ? 'bg-emerald-500'
-                                    : completionRate >= 60
-                                    ? 'bg-[#0078D4]'
-                                    : 'bg-amber-500'
-                                }`}
-                                style={{ width: `${completionRate}%` }}
-                              />
-                            </div>
+                          <div className="w-full bg-blue-900 h-2 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full transition-all duration-300 ${completionRate === 100 ? 'bg-emerald-500' : 'bg-[#ffcf00]'}`}
+                              style={{ width: `${completionRate}%` }}
+                            />
                           </div>
-                        )}
+                          <div className="text-[10px] font-bold text-center">{completionRate}%</div>
+                        </div>
                       </td>
 
-                      <td className="py-3 px-4 text-center">
-                        {isTopicFuturePlanned(topic) ? (
-                          <span className="text-slate-400 text-xs font-mono">—</span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => setSelectedTopicForBreakdown({ topic, stat, initialStatusFilter: 'confirmed' })}
-                            className="font-bold text-emerald-700 tabular-nums hover:underline hover:bg-emerald-50 px-2 py-1 rounded transition cursor-pointer"
-                            title={`Click to inspect ${totalConfirmed} confirmed signatures`}
-                          >
-                            {totalConfirmed}
-                          </button>
-                        )}
-                      </td>
 
-                      <td className="py-3 px-4 text-center">
-                        {isTopicFuturePlanned(topic) ? (
-                          <span className="text-[10px] bg-purple-50 text-purple-700 px-2 py-0.5 rounded border border-purple-200">
-                            Scheduled
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => setSelectedTopicForBreakdown({ topic, stat, initialStatusFilter: 'missing' })}
-                            className="font-bold text-amber-700 tabular-nums hover:underline hover:bg-amber-50 px-2 py-1 rounded transition cursor-pointer"
-                            title={`Click to inspect ${totalMissing} pending / missing staff`}
-                          >
-                            {totalMissing}
-                          </button>
-                        )}
-                      </td>
+
+
 
                       <td className="py-3 px-4 text-right space-x-2 whitespace-nowrap">
                         {/* Staff Details Button */}
@@ -1902,13 +1875,13 @@ export function AdminConsole({
                               <span>Future Planned Topic</span>
                             </span>
                           )}
-                          {topic.isClosed && (
+                          {topic.status === 'closed' && (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-200">
                               <CheckCircle2 className="w-2.5 h-2.5 text-emerald-700 shrink-0" />
-                              <span>Closed for Ack</span>
+                              <span>CLOSED</span>
                             </span>
                           )}
-                          {!topic.isClosed && topic.dueDate && topic.dueDate < new Date().toISOString().split('T')[0] && (
+                          {topic.status !== 'closed' && topic.dueDate && topic.dueDate < new Date().toISOString().split('T')[0] && (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-900 border border-rose-200">
                               <AlertTriangle className="w-2.5 h-2.5 text-rose-700 shrink-0" />
                               <span>Overdue</span>
