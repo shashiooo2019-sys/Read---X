@@ -163,22 +163,20 @@ export default function Home() {
 
   const handleBulkImportUsers = async (importedList: Omit<User, 'id'>[]) => {
     let count = 0;
+    // Map existing users by normalized U Number for efficient lookup
+    const existingUsersMap = new Map<string, User>(
+      users.map((u) => [(u.uNumber || '').trim().toUpperCase(), u])
+    );
+
     for (const item of importedList) {
       const normUNum = (item.uNumber || '').trim().toUpperCase();
-      const normEmail = (item.email || '').trim().toLowerCase();
-
-      // Check if user already exists by U Number or Email
-      const existingUser = users.find(
-        (u) =>
-          (normUNum && u.uNumber && u.uNumber.trim().toUpperCase() === normUNum) ||
-          (normEmail && u.email && u.email.trim().toLowerCase() === normEmail)
-      );
+      const existingUser = existingUsersMap.get(normUNum);
 
       const userToSave: User = {
         ...item,
+        // Use existing ID if user exists, otherwise create a new one
         id: existingUser ? existingUser.id : `usr-import-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-        role: existingUser ? existingUser.role : item.role || 'user',
-        isSuperAdmin: existingUser ? !!existingUser.isSuperAdmin : false,
+        // Preserve password and password set status if user exists
         password: existingUser ? existingUser.password : '',
         isPasswordSet: existingUser ? existingUser.isPasswordSet : false,
       };
