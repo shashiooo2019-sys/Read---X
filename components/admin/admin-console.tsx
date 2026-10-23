@@ -69,6 +69,8 @@ interface AdminConsoleProps {
   onNavigateToRoster?: () => void;
   onImportTopicParticipation?: (result: TopicParticipationImportResult) => Promise<void>;
   onShowFirestoreConfirmation?: (details: FirestoreConfirmationDetails) => void;
+  onManualConfirmParticipant?: (topicId: string, userId: string) => Promise<void> | void;
+  onUnconfirmParticipant?: (topicId: string, userId: string) => Promise<void> | void;
 }
 
 const ALL_TOPIC_TYPES: TopicType[] = [
@@ -118,6 +120,8 @@ export function AdminConsole({
   onNavigateToRoster,
   onImportTopicParticipation,
   onShowFirestoreConfirmation,
+  onManualConfirmParticipant,
+  onUnconfirmParticipant,
 }: AdminConsoleProps) {
   // Main Navigation Tab
   const [activeMainTab, setActiveMainTab] = useState<'topics' | 'staff_database'>('topics');
@@ -472,10 +476,13 @@ export function AdminConsole({
           users={users}
           topics={topics}
           confirmations={confirmations}
+          currentUser={currentUser}
           onSaveUser={onSaveUser || (async () => {})}
           onDeleteUser={onDeleteUser || (async () => {})}
           onResetUserPassword={onResetUserPassword || (async () => {})}
           onBulkImportUsers={onBulkImportUsers || (async () => {})}
+          onManualConfirmParticipant={onManualConfirmParticipant}
+          onUnconfirmParticipant={onUnconfirmParticipant}
         />
       ) : (
         <>
@@ -2118,6 +2125,8 @@ export function AdminConsole({
           }}
           onClose={() => setSelectedTopicForBreakdown(null)}
           currentUser={currentUser}
+          onManualConfirmParticipant={onManualConfirmParticipant}
+          onUnconfirmParticipant={onUnconfirmParticipant}
         />
       )}
 

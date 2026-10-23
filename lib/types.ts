@@ -76,6 +76,7 @@ export interface TopicConfirmation {
   verifiedAt?: string;
   confirmedAt: string;
   status: 'confirmed' | 'not_participated' | 'pending' | 'pending_wbt_verification' | 'rejected';
+  confirmedByAdmin?: boolean;
   timestamp?: string;
 }
 

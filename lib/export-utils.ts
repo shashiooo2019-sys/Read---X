@@ -99,18 +99,43 @@ export function exportSingleTopicReport(
   });
   const targetUsers = [...baseUsers, ...otherConfirmedUsers];
 
+  const isTopicClosed = topic.status === 'closed' || topic.isClosed;
+
   const headers = ['Staff Name', 'U Number', 'Status', 'Confirmed At'];
   const rows = targetUsers.map(user => {
     const conf = confirmations?.find(c => c.userId === user.id && c.topicId === topic.id);
     let statusText = 'Missing';
-    if (conf) {
-      if (conf.status === 'confirmed') statusText = 'Confirmed';
-      else if (conf.status === 'pending_wbt_verification') statusText = 'Pending WBT Verification';
-      else if (conf.status === 'not_participated') statusText = 'Not Participated';
-      else if (conf.status === 'rejected') statusText = 'Rejected';
-      else if (conf.status) statusText = conf.status;
+
+    const isConfirmedByAdmin = Boolean(
+      conf &&
+      (conf.confirmedByAdmin === true ||
+       conf.status === ('confirmed_by_admin' as any) ||
+       (conf.status === 'confirmed' && conf.verifiedBy && (
+         conf.verifiedBy.toLowerCase().includes('admin') ||
+         conf.verifiedBy.toLowerCase().includes('sarah') ||
+         conf.wbtNotes?.toLowerCase().includes('manually marked')
+       )))
+    );
+
+    if (isConfirmedByAdmin) {
+      statusText = 'Confirmed by Admin';
+    } else if (conf?.status === 'confirmed') {
+      statusText = 'Confirmed';
+    } else if (conf?.status === 'not_participated' || isTopicClosed) {
+      statusText = 'Topc Closed/Not Confirmed';
+    } else if (conf?.status === 'pending_wbt_verification') {
+      statusText = 'Pending WBT Verification';
+    } else if (conf?.status === 'rejected') {
+      statusText = 'Rejected';
+    } else if (conf?.status) {
+      statusText = conf.status;
     }
-    const confirmedAtText = conf?.confirmedAt ? conf.confirmedAt.replace('T', ' ').slice(0, 19) : 'N/A';
+
+    const confirmedAtText =
+      (statusText === 'Confirmed by Admin' || statusText === 'Confirmed') && conf?.confirmedAt
+        ? conf.confirmedAt.replace('T', ' ').slice(0, 19)
+        : 'N/A';
+
     return [
       escapeCsvCell(user.name || ''),
       escapeCsvCell(user.uNumber || ''),

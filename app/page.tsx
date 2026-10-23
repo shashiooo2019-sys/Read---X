@@ -15,9 +15,11 @@ import {
   saveUserToCloud,
   deleteUserFromCloud,
   deleteTopicFromCloud,
+  deleteConfirmationFromCloud,
   validateCloudConnection,
   auth,
 } from '@/lib/firebase';
+import { getEligibleUsersForTopic } from '@/lib/compliance-store';
 import { signOut } from 'firebase/auth';
 import {
   Cloud,
@@ -253,6 +255,32 @@ export default function Home() {
   const handleCloseTopicForAcknowledgement = async (topicId: string, option: any) => {
     const res = await updateTopicStatusInCloud(topicId, 'closed', option);
     if (res.success) {
+      if (option === 'mark_not_participated') {
+        const targetTopic = topics.find((t) => t.id === topicId);
+        if (targetTopic) {
+          const eligibleUsers = getEligibleUsersForTopic(targetTopic, users);
+          const alreadyConfirmedIds = new Set(
+            confirmations
+              .filter((c) => c.topicId === topicId && c.status === 'confirmed')
+              .map((c) => c.userId)
+          );
+          for (const user of eligibleUsers) {
+            if (!alreadyConfirmedIds.has(user.id)) {
+              const notPartConf: TopicConfirmation = {
+                id: `conf-${user.id}-${topicId}`,
+                userId: user.id,
+                topicId: topicId,
+                userName: user.name || user.email,
+                userEmail: user.email,
+                documentTitle: targetTopic.title,
+                confirmedAt: new Date().toISOString(),
+                status: 'not_participated',
+              };
+              await saveConfirmationToCloud(notPartConf);
+            }
+          }
+        }
+      }
       triggerCloudBanner(res.message);
     }
   };
@@ -261,6 +289,54 @@ export default function Home() {
     const res = await updateTopicStatusInCloud(topicId, 'active');
     if (res.success) {
       triggerCloudBanner(res.message);
+    }
+  };
+
+  // Manual Confirmation Action for Admin and SuperAdmin
+  const handleManualConfirmParticipant = async (topicId: string, userId: string) => {
+    if (!currentUser) return;
+    const targetUser = users.find((u) => u.id === userId);
+    const targetTopic = topics.find((t) => t.id === topicId);
+    if (!targetUser || !targetTopic) return;
+
+    const existingConf = confirmations.find(
+      (c) => c.topicId === topicId && c.userId === userId
+    );
+
+    const adminName = currentUser.name || currentUser.email || 'Admin';
+    const roleLabel = currentUser.isSuperAdmin ? 'Super Admin' : 'Admin';
+    const confirmationToSave: TopicConfirmation = {
+      id: existingConf ? existingConf.id : `conf-${userId}-${topicId}`,
+      userId: userId,
+      topicId: topicId,
+      userName: targetUser.name || targetUser.email,
+      userEmail: targetUser.email,
+      documentTitle: targetTopic.title,
+      confirmedAt: new Date().toISOString(),
+      status: 'confirmed',
+      confirmedByAdmin: true,
+      verifiedBy: `${adminName} (${roleLabel})`,
+      verifiedAt: new Date().toISOString(),
+      wbtNotes: `Manually marked confirmed by ${roleLabel}`,
+    };
+
+    const res = await saveConfirmationToCloud(confirmationToSave);
+    if (res.success) {
+      triggerCloudBanner(`Manually confirmed ${targetUser.name || targetUser.uNumber} for ${targetTopic.title}`);
+    } else {
+      alert(`Error saving manual confirmation: ${res.error}`);
+    }
+  };
+
+  const handleUnconfirmParticipant = async (topicId: string, userId: string) => {
+    const existingConf = confirmations.find(
+      (c) => c.topicId === topicId && c.userId === userId
+    );
+    if (!existingConf) return;
+
+    const ok = await deleteConfirmationFromCloud(existingConf.id);
+    if (ok) {
+      triggerCloudBanner('Confirmation removed from CLOUD');
     }
   };
 
@@ -435,6 +511,8 @@ export default function Home() {
             onResetUserPassword={handleResetUserPassword}
             onBulkImportUsers={handleBulkImportUsers}
             onImportTopicParticipation={handleImportTopicParticipation}
+            onManualConfirmParticipant={handleManualConfirmParticipant}
+            onUnconfirmParticipant={handleUnconfirmParticipant}
           />
         ) : (
           <StaffPortal

@@ -230,6 +230,7 @@ export async function saveConfirmationToCloud(
   if (confirmation.wbtNotes) payload.wbtNotes = confirmation.wbtNotes;
   if (confirmation.verifiedBy) payload.verifiedBy = confirmation.verifiedBy;
   if (confirmation.verifiedAt) payload.verifiedAt = confirmation.verifiedAt;
+  if (confirmation.confirmedByAdmin !== undefined) payload.confirmedByAdmin = confirmation.confirmedByAdmin;
 
   try {
     // Step 1: Write to Cloud
@@ -260,6 +261,17 @@ export async function saveConfirmationToCloud(
       message: 'Cloud verification failed',
       error: error?.message || String(error),
     };
+  }
+}
+
+export async function deleteConfirmationFromCloud(confirmationId: string): Promise<boolean> {
+  try {
+    const confRef = doc(db, 'confirmations', confirmationId);
+    await deleteDoc(confRef);
+    return true;
+  } catch (error) {
+    console.error('Error deleting confirmation from cloud:', error);
+    return false;
   }
 }
 

@@ -14,6 +14,10 @@ import {
   Trash2,
   Edit3,
   Download,
+  ShieldCheck,
+  RotateCcw,
+  AlertTriangle,
+  Check,
 } from 'lucide-react';
 import { exportSingleTopicReport } from '@/lib/export-utils';
 
@@ -30,6 +34,8 @@ interface TopicBreakdownModalProps {
   onReopenTopicForAcknowledgement?: (topicId: string) => void;
   onDeleteTopic?: (topicId: string) => void;
   currentUser?: User;
+  onManualConfirmParticipant?: (topicId: string, userId: string) => Promise<void> | void;
+  onUnconfirmParticipant?: (topicId: string, userId: string) => Promise<void> | void;
 }
 
 export function TopicBreakdownModal({
@@ -44,9 +50,17 @@ export function TopicBreakdownModal({
   onReopenTopicForAcknowledgement,
   onDeleteTopic,
   currentUser,
+  onManualConfirmParticipant,
+  onUnconfirmParticipant,
 }: TopicBreakdownModalProps) {
   const [statusFilter, setStatusFilter] = useState<'all' | 'confirmed' | 'missing'>(initialStatusFilter);
   const [nameFilter, setNameFilter] = useState('');
+  const [showCloseModal, setShowCloseModal] = useState(false);
+  const [showConfirmAllModal, setShowConfirmAllModal] = useState(false);
+  const [modalCloseOption, setModalCloseOption] = useState<TopicCloseOption>('mark_not_participated');
+  const [isConfirmingAll, setIsConfirmingAll] = useState(false);
+
+  const canManage = currentUser?.role === 'admin' || !!currentUser?.isSuperAdmin;
 
   if (!isOpen || !topic) return null;
 
@@ -284,6 +298,19 @@ export function TopicBreakdownModal({
                     </button>
                   )}
                 </div>
+
+                {canManage && missingCount > 0 && (
+                  <button
+                    type="button"
+                    disabled={isConfirmingAll}
+                    onClick={() => setShowConfirmAllModal(true)}
+                    className="px-2.5 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition flex items-center gap-1 cursor-pointer shrink-0 disabled:opacity-50"
+                    title="Mark all currently missing participants as confirmed by administrator"
+                  >
+                    <Check className="w-3.5 h-3.5 text-blue-600" />
+                    <span>{isConfirmingAll ? 'Confirming...' : 'Mark All Missing Confirmed'}</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -387,17 +414,86 @@ export function TopicBreakdownModal({
                       </div>
 
                       <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                        {isConfirmed ? (
-                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 shadow-xs">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                            Confirmed ({conf?.confirmedAt ? conf.confirmedAt.split('T')[0] : 'Completed'})
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200 shadow-xs">
-                            <Clock className="w-3.5 h-3.5 text-amber-600" />
-                            Missing / Pending
-                          </span>
-                        )}
+                        {(() => {
+                          const isConfByAdmin = Boolean(
+                            conf &&
+                            (conf.confirmedByAdmin === true ||
+                             conf.status === ('confirmed_by_admin' as any) ||
+                             (conf.status === 'confirmed' && conf.verifiedBy && (
+                               conf.verifiedBy.toLowerCase().includes('admin') ||
+                               conf.verifiedBy.toLowerCase().includes('sarah') ||
+                               conf.wbtNotes?.toLowerCase().includes('manually marked')
+                             )))
+                          );
+
+                          if (isConfirmed) {
+                            if (isConfByAdmin) {
+                              return (
+                                <div className="flex items-center gap-1.5">
+                                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-900 border border-blue-200 shadow-xs">
+                                    <ShieldCheck className="w-3.5 h-3.5 text-blue-700" />
+                                    <span>Confirmed by Admin</span>
+                                    {conf?.confirmedAt && (
+                                      <span className="text-[10px] text-blue-700/80 font-normal">
+                                        ({conf.confirmedAt.split('T')[0]})
+                                      </span>
+                                    )}
+                                  </span>
+                                  {canManage && (
+                                    <button
+                                      type="button"
+                                      onClick={() => onUnconfirmParticipant?.(topic.id, user.id)}
+                                      className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                                      title="Revert to Missing"
+                                    >
+                                      <RotateCcw className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 shadow-xs">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Confirmed ({conf?.confirmedAt ? conf.confirmedAt.split('T')[0] : 'Completed'})</span>
+                              </span>
+                            );
+                          }
+
+                          return (
+                            <div className="flex items-center gap-2">
+                              {conf?.status === 'not_participated' ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-200 shadow-xs">
+                                  <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                                  <span>Not Participated</span>
+                                </span>
+                              ) : conf?.status === 'pending_wbt_verification' ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-800 border border-purple-200 shadow-xs">
+                                  <Clock className="w-3.5 h-3.5 text-purple-600" />
+                                  <span>Pending WBT</span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200 shadow-xs">
+                                  <Clock className="w-3.5 h-3.5 text-amber-600" />
+                                  <span>Missing / Pending</span>
+                                </span>
+                              )}
+
+                              {canManage && (
+                                <button
+                                  type="button"
+                                  onClick={() => onManualConfirmParticipant?.(topic.id, user.id)}
+                                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs hover:shadow cursor-pointer shrink-0"
+                                  title="Manually mark this participant as confirmed by Admin"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-blue-100" />
+                                  <span>Mark Confirmed</span>
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   );
@@ -410,30 +506,27 @@ export function TopicBreakdownModal({
         {/* Modal Footer Actions */}
         <div className="bg-slate-100 px-6 py-4 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2">
-            {currentUser?.isSuperAdmin && topic.status === 'active' && (
+            {canManage && topic.status === 'active' && (
               <button
-                onClick={() => {
-                  if (onCloseTopicForAcknowledgement) {
-                    onCloseTopicForAcknowledgement(topic.id, 'mark_participated');
-                  }
-                  onClose();
-                }}
-                className="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-xs font-semibold hover:bg-slate-900 flex items-center gap-1.5 transition-all shadow-sm"
+                type="button"
+                onClick={() => setShowCloseModal(true)}
+                className="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-xs font-semibold hover:bg-slate-900 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
               >
                 <Lock className="w-3.5 h-3.5" />
                 Close for Acknowledgement
               </button>
             )}
             
-            {currentUser?.isSuperAdmin && topic.status === 'closed' && (
+            {canManage && topic.status === 'closed' && (
               <button
+                type="button"
                 onClick={() => {
                   if (onReopenTopicForAcknowledgement) {
                     onReopenTopicForAcknowledgement(topic.id);
                   }
                   onClose();
                 }}
-                className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 flex items-center gap-1.5 transition-all shadow-sm"
+                className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
               >
                 <Unlock className="w-3.5 h-3.5" />
                 Re-open Topic
@@ -489,6 +582,155 @@ export function TopicBreakdownModal({
             </button>
           </div>
         </div>
+
+        {/* Close for Acknowledgement Modal */}
+        {showCloseModal && (
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-slate-200 p-5 space-y-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Close for Acknowledgement</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">{topic.title}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowCloseModal(false)}
+                  className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-600">
+                Select how to treat missing participants who have not yet confirmed this topic:
+              </p>
+
+              <div className="space-y-2">
+                <label className="flex items-start gap-2.5 p-3 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer hover:bg-slate-100/70 transition">
+                  <input
+                    type="radio"
+                    name="modalCloseOption"
+                    value="mark_not_participated"
+                    checked={modalCloseOption === 'mark_not_participated'}
+                    onChange={() => setModalCloseOption('mark_not_participated')}
+                    className="mt-0.5 text-blue-600 focus:ring-blue-500"
+                  />
+                  <div className="text-xs space-y-0.5">
+                    <span className="font-bold text-slate-900 block">Mark missing participants as NOT PARTICIPATED</span>
+                    <span className="text-slate-500 block text-[11px]">
+                      Unconfirmed eligible staff will show as Topic Closed/Not Confirmed in reports.
+                    </span>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-2.5 p-3 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer hover:bg-slate-100/70 transition">
+                  <input
+                    type="radio"
+                    name="modalCloseOption"
+                    value="mark_participated"
+                    checked={modalCloseOption === 'mark_participated'}
+                    onChange={() => setModalCloseOption('mark_participated')}
+                    className="mt-0.5 text-blue-600 focus:ring-blue-500"
+                  />
+                  <div className="text-xs space-y-0.5">
+                    <span className="font-bold text-slate-900 block">Keep current participation status</span>
+                    <span className="text-slate-500 block text-[11px]">
+                      Leaves missing records pending without changing their status.
+                    </span>
+                  </div>
+                </label>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowCloseModal(false)}
+                  className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onCloseTopicForAcknowledgement) {
+                      onCloseTopicForAcknowledgement(topic.id, modalCloseOption);
+                    }
+                    setShowCloseModal(false);
+                    onClose();
+                  }}
+                  className="px-4 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition shadow-xs cursor-pointer"
+                >
+                  Confirm &amp; Close Topic
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Mark All Missing Confirmed In-App Modal */}
+        {showConfirmAllModal && (
+          <div className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-slate-200 p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2 text-blue-900 font-bold text-sm">
+                  <ShieldCheck className="w-5 h-5 text-blue-600" />
+                  <span>Confirm Manual Bulk Approval</span>
+                </div>
+                <button
+                  onClick={() => setShowConfirmAllModal(false)}
+                  className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="text-xs text-slate-600 space-y-2">
+                <p>
+                  Are you sure you want to manually mark all{' '}
+                  <strong className="text-slate-900 font-bold">{missingCount} missing participant(s)</strong> as{' '}
+                  <span className="font-bold text-blue-700">Confirmed by Admin</span> for:
+                </p>
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 font-semibold text-slate-800 text-xs">
+                  {topic.title}
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Each participant will be recorded as verified and confirmed in Cloud Firestore. This will update compliance rates to 100%.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmAllModal(false)}
+                  disabled={isConfirmingAll}
+                  className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isConfirmingAll}
+                  onClick={async () => {
+                    setIsConfirmingAll(true);
+                    try {
+                      const missingItems = userStatuses.filter((item) => !item.isConfirmed);
+                      for (const item of missingItems) {
+                        await onManualConfirmParticipant?.(topic.id, item.user.id);
+                      }
+                      setShowConfirmAllModal(false);
+                    } finally {
+                      setIsConfirmingAll(false);
+                    }
+                  }}
+                  className="px-4 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition shadow-xs cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>{isConfirmingAll ? 'Confirming...' : `Confirm & Mark ${missingCount} Staff`}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

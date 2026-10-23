@@ -3,6 +3,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { User, Topic, TopicConfirmation } from '@/lib/types';
+import { isUserAssignedToTopic } from '@/lib/compliance-store';
 import {
   Users,
   Search,
@@ -27,28 +28,37 @@ import {
   Eye,
   Clock,
   Check,
+  ShieldCheck,
+  RotateCcw,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface StaffDatabaseManagerProps {
   users: User[];
   topics?: Topic[];
   confirmations?: TopicConfirmation[];
+  currentUser?: User;
   onSaveUser: (user: User) => Promise<void>;
   onDeleteUser: (userId: string) => Promise<void>;
   onResetUserPassword: (userId: string) => Promise<void>;
   onBulkImportUsers: (importedUsers: Omit<User, 'id'>[]) => Promise<void>;
   onClose?: () => void;
+  onManualConfirmParticipant?: (topicId: string, userId: string) => Promise<void> | void;
+  onUnconfirmParticipant?: (topicId: string, userId: string) => Promise<void> | void;
 }
 
 export function StaffDatabaseManager({
   users,
   topics = [],
   confirmations = [],
+  currentUser,
   onSaveUser,
   onDeleteUser,
   onResetUserPassword,
   onBulkImportUsers,
   onClose,
+  onManualConfirmParticipant,
+  onUnconfirmParticipant,
 }: StaffDatabaseManagerProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
@@ -121,6 +131,7 @@ export function StaffDatabaseManager({
 
   // Staff details modal state
   const [selectedStaffForDetails, setSelectedStaffForDetails] = useState<User | null>(null);
+  const [isConfirmingAllForStaff, setIsConfirmingAllForStaff] = useState(false);
 
   // Staff member deletion confirmation modal state
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
@@ -1344,40 +1355,164 @@ export function StaffDatabaseManager({
                 </div>
               </div>
 
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-2.5">
-                <span className="text-[10px] uppercase font-bold text-slate-400 block">
-                  Compliance Directives & Participation Records
-                </span>
-                {confirmations.filter((c) => c.userId === selectedStaffForDetails.id).length === 0 ? (
-                  <p className="text-xs text-slate-500 italic">No topic sign-offs found for this staff member.</p>
-                ) : (
-                  <div className="divide-y divide-slate-100 max-h-48 overflow-y-auto">
-                    {confirmations
-                      .filter((c) => c.userId === selectedStaffForDetails.id)
-                      .map((conf) => (
-                        <div key={conf.id} className="py-2 flex items-center justify-between gap-2 text-xs">
-                          <div className="min-w-0 flex-1">
-                            <span className="font-bold text-slate-800 block truncate">{conf.documentTitle || 'Compliance Topic'}</span>
-                            <span className="text-[10px] text-slate-400 font-mono">
-                              {conf.confirmedAt ? new Date(conf.confirmedAt).toLocaleDateString() : 'N/A'}
-                            </span>
-                          </div>
-                          <span
-                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
-                              conf.status === 'confirmed'
-                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                                : conf.status === 'rejected'
-                                ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                                : 'bg-amber-100 text-amber-800 border border-amber-200'
-                            }`}
-                          >
-                            {conf.status === 'confirmed' ? '✓ Confirmed' : conf.status === 'rejected' ? '✕ Rejected' : '⏱ Pending / Missing'}
-                          </span>
+              {(() => {
+                const assignedTopicsForStaff = topics.filter((t) =>
+                  isUserAssignedToTopic(selectedStaffForDetails, t)
+                );
+                const staffTopicRecords = assignedTopicsForStaff.map((topic) => {
+                  const conf = confirmations.find(
+                    (c) => c.topicId === topic.id && c.userId === selectedStaffForDetails.id
+                  );
+                  const isConfirmed = conf?.status === 'confirmed';
+                  const isNotParticipated = conf?.status === 'not_participated';
+                  const isPendingWbt = conf?.status === 'pending_wbt_verification';
+                  return {
+                    topic,
+                    conf,
+                    isConfirmed,
+                    isNotParticipated,
+                    isPendingWbt,
+                  };
+                });
+                const staffMissingCount = staffTopicRecords.filter((r) => !r.isConfirmed).length;
+                const staffConfirmedCount = staffTopicRecords.filter((r) => r.isConfirmed).length;
+                const canManage = currentUser?.role === 'admin' || !!currentUser?.isSuperAdmin;
+
+                return (
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                          Compliance Directives &amp; Participation Records
+                        </span>
+                        <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-700 mt-0.5">
+                          <span>{staffTopicRecords.length} Assigned Directives</span>
+                          <span className="text-slate-300">·</span>
+                          <span className="text-emerald-700 font-bold">{staffConfirmedCount} Confirmed</span>
+                          <span className="text-slate-300">·</span>
+                          <span className="text-amber-700 font-bold">{staffMissingCount} Missing / Not Participated</span>
                         </div>
-                      ))}
+                      </div>
+
+                      {canManage && staffMissingCount > 0 && (
+                        <button
+                          type="button"
+                          disabled={isConfirmingAllForStaff}
+                          onClick={async () => {
+                            setIsConfirmingAllForStaff(true);
+                            try {
+                              const missingTopics = staffTopicRecords.filter((r) => !r.isConfirmed);
+                              for (const item of missingTopics) {
+                                await onManualConfirmParticipant?.(item.topic.id, selectedStaffForDetails.id);
+                              }
+                            } finally {
+                              setIsConfirmingAllForStaff(false);
+                            }
+                          }}
+                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xs rounded-lg transition shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0 self-start sm:self-center"
+                          title="Mark all missing or not participated topics as confirmed for this staff member"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>{isConfirmingAllForStaff ? 'Confirming All...' : 'Mark All Missing Confirmed'}</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {staffTopicRecords.length === 0 ? (
+                      <p className="text-xs text-slate-500 italic py-2">
+                        No compliance topics currently assigned to this staff member.
+                      </p>
+                    ) : (
+                      <div className="divide-y divide-slate-100 max-h-56 overflow-y-auto pr-1 space-y-0.5">
+                        {staffTopicRecords.map(({ topic, conf, isConfirmed, isNotParticipated, isPendingWbt }) => (
+                          <div
+                            key={topic.id}
+                            className="py-2.5 px-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs hover:bg-slate-50/80 rounded-lg transition"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="font-bold text-slate-900 truncate">{topic.title}</span>
+                                <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                                  {topic.type}
+                                </span>
+                              </div>
+                              <div className="text-[10px] text-slate-400 font-mono mt-0.5 flex flex-wrap items-center gap-2">
+                                <span>Target: {topic.targetGroup}</span>
+                                {topic.dueDate && <span>Due: {topic.dueDate}</span>}
+                                {conf?.confirmedAt && (
+                                  <span>Confirmed: {new Date(conf.confirmedAt).toLocaleDateString()}</span>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              {isConfirmed ? (
+                                conf?.confirmedByAdmin ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <span
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-100 text-blue-900 border border-blue-300 shadow-2xs"
+                                      title={`Confirmed by Admin: ${conf.verifiedBy || 'Administrator'}`}
+                                    >
+                                      <ShieldCheck className="w-3 h-3 text-blue-600" />
+                                      <span>Confirmed by Admin</span>
+                                    </span>
+                                    {canManage && (
+                                      <button
+                                        type="button"
+                                        onClick={() => onUnconfirmParticipant?.(topic.id, selectedStaffForDetails.id)}
+                                        className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                                        title="Revert to Missing"
+                                      >
+                                        <RotateCcw className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 shadow-2xs">
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                    <span>✓ Confirmed</span>
+                                  </span>
+                                )
+                              ) : (
+                                <div className="flex items-center gap-1.5">
+                                  {isNotParticipated ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                                      <AlertTriangle className="w-3 h-3 text-rose-600" />
+                                      <span>Not Participated</span>
+                                    </span>
+                                  ) : isPendingWbt ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                                      <Clock className="w-3 h-3 text-purple-600" />
+                                      <span>Pending WBT</span>
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                                      <Clock className="w-3 h-3 text-amber-600" />
+                                      <span>Missing / Pending</span>
+                                    </span>
+                                  )}
+
+                                  {canManage && (
+                                    <button
+                                      type="button"
+                                      onClick={() => onManualConfirmParticipant?.(topic.id, selectedStaffForDetails.id)}
+                                      className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                                      title="Manually mark this topic as confirmed by Admin"
+                                    >
+                                      <CheckCircle2 className="w-3 h-3 text-blue-100" />
+                                      <span>Mark Confirmed</span>
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                );
+              })()}
             </div>
 
             <div className="p-4 bg-slate-100 border-t border-slate-200 flex items-center justify-between gap-2">
