@@ -13,7 +13,9 @@ import {
   Unlock,
   Trash2,
   Edit3,
+  Download,
 } from 'lucide-react';
+import { exportSingleTopicReport } from '@/lib/export-utils';
 
 interface TopicBreakdownModalProps {
   isOpen?: boolean;
@@ -454,12 +456,38 @@ export function TopicBreakdownModal({
             )}
           </div>
 
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50 transition-colors"
-          >
-            Done
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const topicStat = stats || {
+                  topic,
+                  total: totalCount,
+                  confirmed: confirmedCount,
+                  notParticipated: 0,
+                  pending: missingCount,
+                  percentage,
+                  totalMissing: missingCount,
+                  totalEligible: totalCount,
+                  totalConfirmed: confirmedCount,
+                  completionRate: percentage,
+                };
+                exportSingleTopicReport(topicStat, users, confirmations);
+              }}
+              className="px-3.5 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Export CSV report for this topic"
+            >
+              <Download className="w-4 h-4 text-blue-600" />
+              <span>Export CSV Report</span>
+            </button>
+
+            <button
+              onClick={onClose}
+              className="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50 transition-colors cursor-pointer"
+            >
+              Done
+            </button>
+          </div>
         </div>
       </div>
     </div>

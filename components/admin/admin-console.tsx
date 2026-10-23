@@ -426,6 +426,11 @@ export function AdminConsole({
 
     if (toExport.length === 0) return;
 
+    if (toExport.length === 1) {
+      exportSingleTopicReport(toExport[0], users, confirmations);
+      return;
+    }
+
     const filterDesc = `Date: ${dateFilter} | Type: ${typeFilter} | Target: ${targetGroupFilter} (${toExport.length} topics)`;
     exportMultipleTopicsReport(toExport, filterDesc);
   };
