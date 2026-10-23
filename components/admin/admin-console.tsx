@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { User, Topic, TopicConfirmation, TopicType, TargetGroup, DateFilterType, DateFilterOptions, TopicCloseOption, WBT_TEAMS_UPLOAD_URL } from '@/lib/types';
 import {
   calculateTopicStats,
@@ -124,7 +124,17 @@ export function AdminConsole({
 
   // Modal states
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [topicToEdit, setTopicToEdit] = useState<Topic | null>(null);
   const [showImportParticipationModal, setShowImportParticipationModal] = useState(false);
+
+  useEffect(() => {
+    const handleOpenEdit = (e: any) => {
+      setTopicToEdit(e.detail);
+    };
+    window.addEventListener('open-edit-topic-modal', handleOpenEdit);
+    return () => window.removeEventListener('open-edit-topic-modal', handleOpenEdit);
+  }, []);
+
   const [selectedTopicForBreakdown, setSelectedTopicForBreakdown] = useState<{
     topic: Topic;
     stat: TopicComplianceStats;
@@ -2102,8 +2112,19 @@ export function AdminConsole({
             setTopicToDelete(targetTopic);
           }}
           onClose={() => setSelectedTopicForBreakdown(null)}
+          currentUser={currentUser}
         />
       )}
+
+      {/* Edit Topic Modal */}
+      <CreateTopicModal
+        isOpen={!!topicToEdit}
+        onClose={() => setTopicToEdit(null)}
+        onSaveTopic={onCreateTopic}
+        currentUserEmail={currentUser.email}
+        users={users}
+        topicToEdit={topicToEdit || undefined}
+      />
 
       {/* Topic Close for Acknowledgement Confirmation Modal */}
       {topicToClose && (

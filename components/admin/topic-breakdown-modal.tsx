@@ -12,6 +12,7 @@ import {
   Lock,
   Unlock,
   Trash2,
+  Edit3,
 } from 'lucide-react';
 
 interface TopicBreakdownModalProps {
@@ -40,6 +41,7 @@ export function TopicBreakdownModal({
   onCloseTopicForAcknowledgement,
   onReopenTopicForAcknowledgement,
   onDeleteTopic,
+  currentUser,
 }: TopicBreakdownModalProps) {
   const [statusFilter, setStatusFilter] = useState<'all' | 'confirmed' | 'missing'>(initialStatusFilter);
   const [nameFilter, setNameFilter] = useState('');
@@ -107,12 +109,27 @@ export function TopicBreakdownModal({
               <p className="text-xs text-slate-400 mt-1">Due Date: {topic.dueDate}</p>
             )}
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {currentUser?.isSuperAdmin && (
+              <button
+                onClick={() => {
+                  onClose();
+                  // The parent will handle opening the edit modal
+                  window.dispatchEvent(new CustomEvent('open-edit-topic-modal', { detail: topic }));
+                }}
+                className="p-1.5 rounded-lg text-blue-300 hover:text-white hover:bg-slate-800 transition-colors"
+                title="Edit Topic"
+              >
+                <Edit3 className="w-5 h-5" />
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Modal Scroll Content */}
@@ -391,7 +408,7 @@ export function TopicBreakdownModal({
         {/* Modal Footer Actions */}
         <div className="bg-slate-100 px-6 py-4 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2">
-            {topic.status === 'active' ? (
+            {currentUser?.isSuperAdmin && topic.status === 'active' && (
               <button
                 onClick={() => {
                   if (onCloseTopicForAcknowledgement) {
@@ -404,7 +421,9 @@ export function TopicBreakdownModal({
                 <Lock className="w-3.5 h-3.5" />
                 Close for Acknowledgement
               </button>
-            ) : (
+            )}
+            
+            {currentUser?.isSuperAdmin && topic.status === 'closed' && (
               <button
                 onClick={() => {
                   if (onReopenTopicForAcknowledgement) {
@@ -419,7 +438,7 @@ export function TopicBreakdownModal({
               </button>
             )}
 
-            {onDeleteTopic && (
+            {onDeleteTopic && currentUser?.isSuperAdmin && (
               <button
                 type="button"
                 onClick={() => {

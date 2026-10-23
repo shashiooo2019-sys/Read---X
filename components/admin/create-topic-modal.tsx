@@ -12,6 +12,7 @@ interface CreateTopicModalProps {
   onSaveTopic?: (topic: Omit<Topic, 'id' | 'createdAt'>) => void;
   currentUserEmail?: string;
   users?: User[];
+  topicToEdit?: Topic;
 }
 
 const TOPIC_TYPES: TopicType[] = [
@@ -46,18 +47,19 @@ export function CreateTopicModal({
   onSaveTopic,
   currentUserEmail = 'admin@example.com',
   users = [],
+  topicToEdit,
 }: CreateTopicModalProps) {
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [content, setContent] = useState('');
-  const [type, setType] = useState<TopicType>('Document Read and Sign');
-  const [targetGroup, setTargetGroup] = useState<TargetGroup>('All');
-  const [assignedUserIds, setAssignedUserIds] = useState<string[]>([]);
-  const [assignedTeams, setAssignedTeams] = useState<string[]>([]);
-  const [assignedDepartments, setAssignedDepartments] = useState<string[]>([]);
+  const [title, setTitle] = useState(topicToEdit?.title || '');
+  const [description, setDescription] = useState(topicToEdit?.description || '');
+  const [content, setContent] = useState(topicToEdit?.content || '');
+  const [type, setType] = useState<TopicType>(topicToEdit?.type || 'Document Read and Sign');
+  const [targetGroup, setTargetGroup] = useState<TargetGroup>(topicToEdit?.targetGroup || 'All');
+  const [assignedUserIds, setAssignedUserIds] = useState<string[]>(topicToEdit?.assignedUserIds || []);
+  const [assignedTeams, setAssignedTeams] = useState<string[]>(topicToEdit?.targetTeams || []);
+  const [assignedDepartments, setAssignedDepartments] = useState<string[]>(topicToEdit?.targetDepartments || []);
   const [showSelectStaffModal, setShowSelectStaffModal] = useState(false);
-  const [publishedDate, setPublishedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [dueDate, setDueDate] = useState('');
+  const [publishedDate, setPublishedDate] = useState(topicToEdit?.publishedDate?.split('T')[0] || new Date().toISOString().split('T')[0]);
+  const [dueDate, setDueDate] = useState(topicToEdit?.dueDate || '');
 
   const uniqueTeams = React.useMemo(() => Array.from(new Set(users.map(u => u.team).filter((t): t is string => !!t))), [users]);
   const uniqueDepartments = React.useMemo(() => Array.from(new Set(users.map(u => u.department).filter((t): t is string => !!t))), [users]);
@@ -84,8 +86,8 @@ export function CreateTopicModal({
       status: 'active',
     };
 
-    if (onCreate) onCreate(topicData);
-    if (onSaveTopic) onSaveTopic(topicData);
+    if (onCreate) onCreate(topicToEdit ? { ...topicData, id: topicToEdit.id } as any : topicData);
+    if (onSaveTopic) onSaveTopic(topicToEdit ? { ...topicData, id: topicToEdit.id } as any : topicData);
     
     setTitle('');
     setDescription('');
